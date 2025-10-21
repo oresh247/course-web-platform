@@ -127,7 +127,9 @@ class CourseDatabase:
             course = session.query(CourseModel).filter(CourseModel.id == course_id).first()
             if course:
                 data = json.loads(course.course_data)
+                # Убедимся что course_id всегда есть и правильный
                 data["course_id"] = course.id
+                data["id"] = course.id  # Добавим и id для совместимости
                 return data
             return None
         finally:
@@ -153,7 +155,9 @@ class CourseDatabase:
             result = []
             for course in courses:
                 data = json.loads(course.course_data)
+                # Убедимся что course_id всегда есть и правильный
                 data["course_id"] = course.id
+                data["id"] = course.id  # Добавим и id для совместимости
                 result.append(data)
             return result
         finally:
