@@ -48,12 +48,17 @@ async def create_course(request: CourseCreateRequest):
         
         logger.info(f"✅ Курс создан с ID: {course_id}")
         
-        return CourseResponse(
-            id=course_id,
-            course=course,
-            status="created",
-            message=f"Курс '{course.course_title}' успешно создан"
-        )
+        # Добавляем course_id в данные курса
+        course_dict = course.dict()
+        course_dict["course_id"] = course_id
+        
+        return {
+            "id": course_id,
+            "course_id": course_id,
+            "course": course_dict,
+            "status": "created",
+            "message": f"Курс '{course.course_title}' успешно создан"
+        }
         
     except ValueError as e:
         logger.error(f"Ошибка валидации: {e}")
