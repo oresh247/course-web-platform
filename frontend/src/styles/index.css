@@ -1,0 +1,111 @@
+/* IT-ONE Dark Theme Color Palette */
+:root {
+  /* Primary Colors - IT-ONE Green (RGB 94, 138, 48) to Dark Green */
+  --primary-green: #5E8A30;
+  --primary-green-dark: #2d4719;
+  --gradient-primary: linear-gradient(135deg, #5E8A30 0%, #2d4719 100%);
+  
+  /* Secondary Colors */
+  --secondary-blue: #5E8A30;
+  --secondary-green: #4caf50;
+  --secondary-gold: #ffd700;
+  
+  /* Dark Theme Colors */
+  --dark-bg-primary: #0a0a0a;
+  --dark-bg-secondary: #141414;
+  --dark-bg-elevated: #1a1a1a;
+  --dark-bg-hover: #202020;
+  
+  /* Dark Text Colors */
+  --text-primary: #ffffff;
+  --text-secondary: #b0b0b0;
+  --text-muted: #808080;
+  
+  /* Border Colors */
+  --border-color: #2a2a2a;
+  --border-color-light: #333333;
+  
+  /* Background */
+  --bg-primary: var(--dark-bg-primary);
+  --bg-secondary: var(--dark-bg-secondary);
+  
+  /* Typography */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  
+  color-scheme: dark;
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--dark-bg-primary);
+  color: var(--text-primary);
+}
+
+#root {
+  min-height: 100vh;
+  background-color: var(--dark-bg-primary);
+}
+
+/* IT-ONE Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+h2 {
+  font-size: 2rem;
+  margin-bottom: 0.875rem;
+}
+
+h3 {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Gradient Text Effect (IT-ONE style) */
+.gradient-text {
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Card shadows (IT-ONE style) */
+.card-shadow {
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.card-shadow:hover {
+  box-shadow: 0 8px 30px rgba(102, 126, 234, 0.2);
+}
+
+/* Smooth transitions */
+* {
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
