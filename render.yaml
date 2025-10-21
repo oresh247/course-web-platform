@@ -27,11 +27,6 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-    envVars:
-      - key: NODE_VERSION
-        value: 18.18.0
-      - key: VITE_API_URL
-        value: https://course-builder-api.onrender.com
 
 # Database - SQLite будет в памяти, для продакшн рекомендуется PostgreSQL
 

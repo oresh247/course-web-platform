@@ -24,6 +24,12 @@ export default defineConfig({
         }
       }
     }
+  },
+  define: {
+    // Дефолтное значение для продакшн, если переменная не установлена
+    'import.meta.env.VITE_API_URL': JSON.stringify(
+      process.env.VITE_API_URL || 'https://course-builder-api.onrender.com'
+    )
   }
 })
 
