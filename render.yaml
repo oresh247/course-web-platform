@@ -18,15 +18,8 @@ services:
         value: 10000
     healthCheckPath: /health
 
-  # Frontend Static Site
-  - type: static
-    name: course-builder-frontend
-    buildCommand: "cd frontend && npm install && npm run build"
-    staticPublishPath: ./frontend/dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-
 # Database - SQLite будет в памяти, для продакшн рекомендуется PostgreSQL
+# 
+# ВАЖНО: Frontend нужно создать вручную как Static Site через Dashboard
+# См. инструкцию в DEPLOY.md или RENDER_QUICKSTART.md
 
