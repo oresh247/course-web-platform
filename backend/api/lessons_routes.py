@@ -7,7 +7,7 @@ import json
 
 from backend.models.domain import Course
 from backend.ai.content_generator import ContentGenerator
-from backend.database.db import db
+from backend.database import db
 from backend.services.generation_service import generation_service
 from backend.services.export_service import export_service
 from backend.utils.formatters import safe_filename, format_content_disposition

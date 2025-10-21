@@ -10,7 +10,7 @@ from backend.models.domain import (
     Course, CourseCreateRequest, CourseResponse
 )
 from backend.ai.openai_client import OpenAIClient
-from backend.database.db import db
+from backend.database import db
 from backend.services.export_service import export_service
 from backend.utils.formatters import safe_filename, format_content_disposition
 from fastapi.responses import Response

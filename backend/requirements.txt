@@ -20,3 +20,7 @@ certifi==2024.8.30
 # Production server
 gunicorn==21.2.0
 
+# PostgreSQL Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+
