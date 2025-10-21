@@ -23,7 +23,7 @@ services:
     name: course-builder-frontend
     env: static
     buildCommand: "cd frontend && npm install && npm run build"
-    staticPublishPath: frontend/dist
+    staticPublishPath: ./frontend/dist
     routes:
       - type: rewrite
         source: /*
@@ -32,10 +32,7 @@ services:
       - key: NODE_VERSION
         value: 18.18.0
       - key: VITE_API_URL
-        fromService:
-          name: course-builder-api
-          type: web
-          property: host
+        value: https://course-builder-api.onrender.com
 
 # Database - SQLite будет в памяти, для продакшн рекомендуется PostgreSQL
 
