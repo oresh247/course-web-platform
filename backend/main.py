@@ -78,9 +78,19 @@ async def root():
     }
 
 
-@app.get("/api/health")
+@app.get("/health")
 async def health_check():
-    """Проверка работоспособности API"""
+    """Проверка работоспособности API (для Render)"""
+    return {
+        "status": "healthy",
+        "service": "AI Course Builder",
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY"))
+    }
+
+
+@app.get("/api/health")
+async def health_check_api():
+    """Проверка работоспособности API (альтернативный путь)"""
     return {
         "status": "healthy",
         "service": "AI Course Builder",
