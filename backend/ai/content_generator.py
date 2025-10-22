@@ -100,7 +100,7 @@ class ContentGenerator:
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.3,
-                max_tokens=6000  # Увеличено с 3000 для детального контента урока
+                max_tokens=4000  # Максимум для gpt-4-turbo-preview
             )
             
             content = response.choices[0].message.content.strip()
@@ -207,7 +207,7 @@ class ContentGenerator:
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.3,
-                max_tokens=8000  # Увеличено с 4000 для более детального контента
+                max_tokens=4096  # Максимум для gpt-4-turbo-preview
             )
             
             content = response.choices[0].message.content.strip()
@@ -273,7 +273,7 @@ class ContentGenerator:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=8000  # Увеличено с 4000 для более детального контента
+                max_tokens=4000  # Безопасный лимит для gpt-4
             )
             
             content = response.choices[0].message.content.strip()
@@ -610,7 +610,7 @@ class ContentGenerator:
                     ],
                     response_format={"type": "json_object"},
                     temperature=0.7,
-                    max_tokens=6000  # Увеличено с 4000 для детального материала темы
+                    max_tokens=4096  # Максимум для gpt-4-turbo-preview
                 )
                 logger.info("✅ Используем JSON mode для генерации темы")
             except Exception as e:
@@ -623,7 +623,7 @@ class ContentGenerator:
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=6000  # Увеличено с 4000 для детального материала темы
+                    max_tokens=4000  # Безопасный лимит для gpt-4
                 )
             
             content = response.choices[0].message.content.strip()

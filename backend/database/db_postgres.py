@@ -229,8 +229,15 @@ class CourseDatabase:
         finally:
             session.close()
     
-    def save_module_content(self, course_id: int, module_number: int, content: Dict[str, Any]) -> bool:
-        """Сохранить детальный контент модуля"""
+    def save_module_content(self, course_id: int, module_number: int, module_title: str, content_data: Dict[str, Any]) -> bool:
+        """Сохранить детальный контент модуля
+        
+        Args:
+            course_id: ID курса
+            module_number: Номер модуля
+            module_title: Название модуля
+            content_data: Данные контента модуля
+        """
         session = self._get_session()
         try:
             # Удаляем старый контент если есть
@@ -243,7 +250,7 @@ class CourseDatabase:
             module_content = ModuleContentModel(
                 course_id=course_id,
                 module_number=module_number,
-                content_data=json.dumps(content, ensure_ascii=False)
+                content_data=json.dumps(content_data, ensure_ascii=False)
             )
             session.add(module_content)
             session.commit()

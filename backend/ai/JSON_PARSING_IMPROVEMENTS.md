@@ -13,14 +13,14 @@ The OpenAI API sometimes returns invalid JSON with syntax errors such as:
 
 ## Solutions Implemented
 
-### 1. Increased Token Limits
+### 1. Optimized Token Limits
 **Location:** `backend/ai/content_generator.py`
 
-- **Module content generation**: 4000 → 8000 tokens
-- **Lesson content generation**: 3000 → 6000 tokens  
-- **Topic material generation**: 4000 → 6000 tokens
+- **Module content generation**: 4096 tokens (max for gpt-4-turbo-preview)
+- **Lesson content generation**: 4000 tokens (safe limit)
+- **Topic material generation**: 4096 tokens (max for gpt-4-turbo-preview)
 
-**Rationale:** Russian text with detailed educational content requires more tokens than English. The original limits were too restrictive, causing response truncation.
+**Rationale:** Using maximum allowed tokens for gpt-4-turbo-preview model (4096) to get detailed content while respecting API limits. For fallback gpt-4 model, using 4000 tokens to stay within safe limits.
 
 ### 2. Enhanced JSON Error Detection
 
@@ -219,21 +219,38 @@ Current settings in `content_generator.py`:
 # Module content generation
 model="gpt-4-turbo-preview"
 temperature=0.3
-max_tokens=8000
+max_tokens=4096  # Maximum for gpt-4-turbo-preview
 response_format={"type": "json_object"}
 
 # Lesson content generation  
 model="gpt-4-turbo-preview"
 temperature=0.3
-max_tokens=6000
+max_tokens=4000  # Safe limit
 response_format={"type": "json_object"}
 
 # Topic material generation
 model="gpt-4-turbo-preview"  
 temperature=0.7
-max_tokens=6000
+max_tokens=4096  # Maximum for gpt-4-turbo-preview
 response_format={"type": "json_object"}
 ```
+
+**Important:** gpt-4-turbo-preview has a maximum of 4096 completion tokens. Using values higher than this will result in 400 Bad Request errors.
+
+## Known Limitations
+
+### Token Limits
+- **gpt-4-turbo-preview**: Maximum 4096 completion tokens
+- **gpt-4**: Maximum ~8000 tokens total context (prompt + completion)
+- If you need more tokens, consider:
+  - Using gpt-4-turbo (with higher limits)
+  - Splitting generation into multiple API calls
+  - Reducing number of lessons per module generation
+
+### Error: "max_tokens is too large"
+This means the model doesn't support the requested token limit. Solution:
+- For gpt-4-turbo-preview: Use max 4096 tokens
+- For gpt-4: Use max 4000 tokens (safe limit)
 
 ## Rollback Instructions
 
