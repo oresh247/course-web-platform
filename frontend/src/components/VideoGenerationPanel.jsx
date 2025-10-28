@@ -5,6 +5,7 @@ Frontend компонент для управления видео-генера�
 import React, { useState, useEffect } from 'react';
 import { Button, Card, Progress, Select, message, Space, Typography, Row, Col, Statistic } from 'antd';
 import { PlayCircleOutlined, DownloadOutlined, ReloadOutlined, EyeOutlined } from '@ant-design/icons';
+import { getVideoApiUrl } from '../config/api';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -28,8 +29,9 @@ const VideoGenerationPanel = ({ lesson, onVideoGenerated }) => {
 
   const loadAvatars = async () => {
     try {
-      console.log('Загрузка аватаров...');
-      const response = await fetch('http://localhost:8000/api/video/avatars');
+      const apiUrl = getVideoApiUrl('AVATARS');
+      console.log('Загрузка аватаров с URL:', apiUrl);
+      const response = await fetch(apiUrl);
       console.log('Ответ от API аватаров:', response.status);
       const data = await response.json();
       console.log('Данные аватаров:', data);
@@ -46,8 +48,9 @@ const VideoGenerationPanel = ({ lesson, onVideoGenerated }) => {
 
   const loadVoices = async () => {
     try {
-      console.log('Загрузка голосов...');
-      const response = await fetch('http://localhost:8000/api/video/voices');
+      const apiUrl = getVideoApiUrl('VOICES');
+      console.log('Загрузка голосов с URL:', apiUrl);
+      const response = await fetch(apiUrl);
       console.log('Ответ от API голосов:', response.status);
       const data = await response.json();
       console.log('Данные голосов:', data);
@@ -69,7 +72,7 @@ const VideoGenerationPanel = ({ lesson, onVideoGenerated }) => {
     setProgress(0);
 
     try {
-      const response = await fetch('http://localhost:8000/api/video/generate-lesson', {
+      const response = await fetch(getVideoApiUrl('GENERATE_LESSON'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,7 +111,7 @@ const VideoGenerationPanel = ({ lesson, onVideoGenerated }) => {
 
   const checkVideoStatus = async (videoId) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/video/status/${videoId}`);
+      const response = await fetch(`${getVideoApiUrl('STATUS')}/${videoId}`);
       const data = await response.json();
       
       if (data.success) {
@@ -145,7 +148,7 @@ const VideoGenerationPanel = ({ lesson, onVideoGenerated }) => {
     if (!videoStatus?.download_url) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/api/video/download/${videoStatus.video_id}`, {
+      const response = await fetch(`${getVideoApiUrl('DOWNLOAD')}/${videoStatus.video_id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
