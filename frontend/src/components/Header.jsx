@@ -29,6 +29,11 @@ function AppHeader() {
       icon: <BookOutlined />,
       label: <Link to="/courses">Мои курсы</Link>,
     },
+    {
+      key: '/video-test',
+      icon: <RobotOutlined />,
+      label: <Link to="/video-test">Тест видео</Link>,
+    },
   ]
 
   return (

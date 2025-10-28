@@ -411,7 +411,7 @@ class ContentGenerator:
             logger.info(f"💾 Проблемный JSON сохранен в: {debug_file}")
         except Exception as save_error:
             logger.error(f"Не удалось сохранить JSON в файл: {save_error}")
-    
+                    
     def _attempt_close_json(self, json_str: str) -> str:
         """Пытается закрыть обрезанный JSON
         
@@ -454,7 +454,7 @@ class ContentGenerator:
                 logger.info(f"🔧 Закрыли {open_braces - close_braces} объектов")
             
             return json_str
-            
+                
         except Exception as e:
             logger.warning(f"Ошибка при попытке закрыть JSON: {e}")
             return json_str

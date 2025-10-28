@@ -61,11 +61,13 @@ app.add_middleware(
 from backend.api.courses_routes import router as courses_router
 from backend.api.modules_routes import router as modules_router
 from backend.api.lessons_routes import router as lessons_router
+from backend.routes.video_routes import router as video_router
 
 # Подключаем роутеры
 app.include_router(courses_router)
 app.include_router(modules_router)
 app.include_router(lessons_router)
+app.include_router(video_router)
 
 
 @app.get("/")
@@ -85,7 +87,8 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "AI Course Builder",
-        "openai_configured": bool(os.getenv("OPENAI_API_KEY"))
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "heygen_configured": bool(os.getenv("HEYGEN_API_KEY"))
     }
 
 
@@ -95,7 +98,8 @@ async def health_check_api():
     return {
         "status": "healthy",
         "service": "AI Course Builder",
-        "openai_configured": bool(os.getenv("OPENAI_API_KEY"))
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "heygen_configured": bool(os.getenv("HEYGEN_API_KEY"))
     }
 
 

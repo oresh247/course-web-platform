@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage'
 import CreateCoursePage from './pages/CreateCoursePage'
 import CourseViewPage from './pages/CourseViewPage'
 import CoursesListPage from './pages/CoursesListPage'
+import VideoTestPage from './pages/VideoTestPage'
 import './styles/App.css'
 
 const { Content, Footer } = Layout
@@ -97,6 +98,7 @@ function App() {
             <Route path="/create" element={<CreateCoursePage />} />
             <Route path="/courses" element={<CoursesListPage />} />
             <Route path="/courses/:id" element={<CourseViewPage />} />
+            <Route path="/video-test" element={<VideoTestPage />} />
           </Routes>
         </Content>
         <Footer style={{ 
