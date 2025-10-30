@@ -2,6 +2,15 @@ import axios from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Диагностика: смотрим, что попало в сборку
+// Внимание: видно в консоли браузера
+try {
+  // eslint-disable-next-line no-console
+  console.log('VITE_API_URL =', import.meta.env.VITE_API_URL)
+  // eslint-disable-next-line no-console
+  console.log('API_BASE_URL =', API_BASE_URL)
+} catch (_) {}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
