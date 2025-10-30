@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 
 from ..services.video_generation_service import VideoGenerationService
-from ..services.heygen_service import HeyGenService
+from ..services.mock_heygen_service import AdaptiveHeyGenService
 from ..services.video_cache_service import VideoCacheService
 from ..models.video_cache_models import VideoGenerationRequest, VideoGenerationResponse
 from ..database import db
@@ -19,7 +19,8 @@ router = APIRouter(prefix="/api/video", tags=["video"])
 
 # Инициализация сервисов
 video_service = VideoGenerationService()
-heygen_service = HeyGenService()
+# Используем адаптивный сервис: при отсутствии HEYGEN_API_KEY автоматически работает мок
+heygen_service = AdaptiveHeyGenService()
 video_cache_service = VideoCacheService()
 
 @router.post("/generate-lesson-cached")
