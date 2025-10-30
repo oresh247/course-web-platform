@@ -1,0 +1,20 @@
+{
+  "3_1_1": {
+    "video_id": "08317e57b38e4ef4a9134b06130fa14d",
+    "lesson_key": "3_1_1",
+    "title": "Установка и настройка JDK",
+    "content": "На уроке вы сможете: \n- научиться скачивать JDK с официального сайта. \n- освоить процесс установки JDK на компьютер. \n- научиться настраивать переменные окружения для использования Java.",
+    "avatar_id": "Amelia_lying_lounge_front",
+    "voice_id": "f8c69e517f424cafaecde32dde57096b",
+    "language": "ru",
+    "quality": "low",
+    "status": "completed",
+    "download_url": "https://files2.heygen.ai/aws_pacific/avatar_tmp/a7a29dac1d71491084a6877c07d08cc0/08317e57b38e4ef4a9134b06130fa14d.mp4?Expires=1762432367&Signature=CnhsUkXCHjE-7HrPf4c57q~Kjio9WJ9zuVv2VK6UNW-GHIAUQFucHdJ~u5S31YjOo4RZHt-Kwjk33ouJCoypQznxonYKHqSfMtwYCus5UAn1NJ4W0oqUX2ZJitrW9iQEj8xR2h9ce1Bo~UaocOn56A2xfhZNa1D80tylq~xd3kIjpkGg6l01mS~FPR4VuQKCmPlS8-dCdjk-YitA6mPWDgm1ej6tGsiRLJCQXnA73YP59fCX6FxJTo0fWTndju2pOnKpICt82eOxNje7~IjCWv9raq0Mjn2tnP5374n4uOmIa-00qYKKADlU5gonXICv6IzWhlFekfEKUuUuM1r9LQ__&Key-Pair-Id=K38HBHX5LX3X2H",
+    "duration": 13.733,
+    "file_size": null,
+    "created_at": "2025-10-30T15:24:36.735608",
+    "updated_at": "2025-10-30T15:32:45.704000",
+    "error_message": null,
+    "error_code": null
+  }
+}

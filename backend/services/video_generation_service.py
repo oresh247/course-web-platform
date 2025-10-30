@@ -21,8 +21,8 @@ class VideoGenerationService:
         self.heygen_service = AdaptiveHeyGenService()
         
         # Настройки по умолчанию для видео
-        self.default_avatar_id = os.getenv('HEYGEN_DEFAULT_AVATAR_ID', 'default')
-        self.default_voice_id = os.getenv('HEYGEN_DEFAULT_VOICE_ID', 'default')
+        self.default_avatar_id = os.getenv('HEYGEN_DEFAULT_AVATAR_ID', 'Abigail_expressive_2024112501')
+        self.default_voice_id = os.getenv('HEYGEN_DEFAULT_VOICE_ID', '9799f1ba6acd4b2b993fe813a18f9a91')
         
         logger.info("VideoGenerationService инициализирован")
     
@@ -215,10 +215,23 @@ class VideoGenerationService:
             # 3. Создаем видео через HeyGen
             video_info = await self._create_lesson_video(video_config)
             
-            # 4. Добавляем информацию о видео к контенту урока
+            # 4. Проверяем статус создания видео
+            if video_info.get('status') == 'failed':
+                logger.error(f"Не удалось создать видео для урока: {video_info.get('error')}")
+                lesson_content['video'] = video_info
+                lesson_content['metadata'] = {
+                    'generated_at': datetime.now().isoformat(),
+                    'video_enabled': False,
+                    'video_error': video_info.get('error'),
+                    'avatar_id': video_config.get('avatar_id'),
+                    'voice_id': video_config.get('voice_id')
+                }
+                return lesson_content
+            
+            # 5. Добавляем информацию о видео к контенту урока
             lesson_content['video'] = video_info
             
-            # 5. Сохраняем метаданные
+            # 6. Сохраняем метаданные
             lesson_content['metadata'] = {
                 'generated_at': datetime.now().isoformat(),
                 'video_enabled': True,
@@ -246,7 +259,7 @@ class VideoGenerationService:
         """
         return {
             'title': lesson_content.get('title', 'Урок'),
-            'content': lesson_content.get('content', ''),
+            'content': lesson_data.get('content', ''),  # Используем оригинальный контент из lesson_data
             'introduction': lesson_content.get('introduction', ''),
             'conclusion': lesson_content.get('conclusion', ''),
             'avatar_id': lesson_data.get('avatar_id', self.default_avatar_id),
@@ -274,18 +287,31 @@ class VideoGenerationService:
                 voice_id=video_config['voice_id']
             )
             
+            # Проверяем, что видео действительно создано
+            if not video_response.get('video_id'):
+                raise Exception("HeyGen не вернул video_id")
+            
             return {
                 'video_id': video_response['video_id'],
-                'script': video_response['script'],
+                'script': video_response.get('script', ''),
                 'status': 'generating',
-                'created_at': video_response['created_at'],
+                'created_at': video_response.get('created_at', ''),
                 'avatar_id': video_config['avatar_id'],
                 'voice_id': video_config['voice_id']
             }
             
         except Exception as e:
             logger.error(f"Ошибка при создании видео: {str(e)}")
-            raise
+            # Возвращаем информацию об ошибке вместо исключения
+            return {
+                'video_id': None,
+                'script': '',
+                'status': 'failed',
+                'error': str(e),
+                'created_at': '',
+                'avatar_id': video_config['avatar_id'],
+                'voice_id': video_config['voice_id']
+            }
     
     async def check_video_status(self, video_id: str) -> Dict[str, Any]:
         """
@@ -299,19 +325,57 @@ class VideoGenerationService:
         """
         try:
             status = self.heygen_service.get_video_status(video_id)
-            return {
+
+            # Нормализуем возможные поля статуса от разных реализаций
+            raw_status = (
+                status.get('status') or 
+                status.get('task_status') or 
+                status.get('state') or 
+                'unknown'
+            )
+            # Нормализуем промежуточные статусы в 'generating'
+            if str(raw_status).lower() in ['processing', 'in_progress', 'queued', 'pending', 'working']:
+                raw_status = 'generating'
+            raw_progress = (
+                status.get('progress') or 
+                status.get('percent') or 
+                status.get('percentage') or 
+                0
+            )
+            # Приводим прогресс к 0..100
+            try:
+                if isinstance(raw_progress, float):
+                    # если 0..1 — конвертируем в проценты
+                    raw_progress = int(raw_progress * 100) if 0 <= raw_progress <= 1 else int(raw_progress)
+                elif isinstance(raw_progress, str):
+                    raw_progress = int(float(raw_progress))
+            except Exception:
+                raw_progress = 0
+
+            result = {
                 'video_id': video_id,
-                'status': status.get('status', 'unknown'),
-                'progress': status.get('progress', 0),
-                'download_url': status.get('download_url'),
-                'error_message': status.get('error_message')
+                'status': raw_status,
+                'progress': max(0, min(100, raw_progress)),
+                'download_url': status.get('download_url') or status.get('video_url') or status.get('url'),
+                'error': status.get('error') or status.get('message'),
+                'error_code': status.get('error_code'),
+                'error_details': status.get('error_details'),
+                'duration': status.get('duration'),
+                'file_size': status.get('file_size'),
+                'created_at': status.get('created_at'),
+                'estimated_time': status.get('estimated_time') or status.get('eta')
             }
+            
+            logger.info(f"Статус видео {video_id}: {result['status']}")
+            return result
+            
         except Exception as e:
             logger.error(f"Ошибка при проверке статуса видео {video_id}: {str(e)}")
             return {
                 'video_id': video_id,
-                'status': 'error',
-                'error_message': str(e)
+                'status': 'unknown_error',
+                'error': f'Ошибка проверки статуса: {str(e)}',
+                'progress': 0
             }
     
     async def wait_for_video_completion(self, video_id: str, max_wait_time: int = 300) -> Dict[str, Any]:
@@ -382,7 +446,20 @@ class VideoGenerationService:
         """
         try:
             voices_response = self.heygen_service.get_available_voices()
-            return voices_response.get('data', [])
+            data = voices_response.get('data', {})
+            
+            # Проверяем разные варианты структуры ответа
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                # Если data - это объект с полем list
+                if 'list' in data and isinstance(data['list'], list):
+                    return data['list']
+                # Если data - это объект с полем voices
+                elif 'voices' in data and isinstance(data['voices'], list):
+                    return data['voices']
+            
+            return []
         except Exception as e:
             logger.error(f"Ошибка при получении голосов: {str(e)}")
             return []

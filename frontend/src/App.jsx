@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
-import { Layout, ConfigProvider, theme as antdTheme } from 'antd'
+import { Layout, ConfigProvider, theme as antdTheme, App as AntdApp } from 'antd'
 import AppHeader from './components/Header'
 import HomePage from './pages/HomePage'
 import CreateCoursePage from './pages/CreateCoursePage'
@@ -90,29 +90,31 @@ const theme = {
 function App() {
   return (
     <ConfigProvider theme={theme}>
-      <Layout style={{ minHeight: '100vh', background: '#0a0a0a' }}>
-        <AppHeader />
-        <Content style={{ padding: '24px 50px', marginTop: 70, background: '#0a0a0a' }}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/create" element={<CreateCoursePage />} />
-            <Route path="/courses" element={<CoursesListPage />} />
-            <Route path="/courses/:id" element={<CourseViewPage />} />
-            <Route path="/video-test" element={<VideoTestPage />} />
-          </Routes>
-        </Content>
-        <Footer style={{ 
-          textAlign: 'center',
-          background: '#0a0a0a',
-          color: '#808080',
-          padding: '24px 50px',
-          borderTop: '1px solid #2a2a2a'
-        }}>
-          <div>
-            <strong style={{ color: '#b0b0b0' }}>AI Course Builder</strong> ©2025
-          </div>
-        </Footer>
-      </Layout>
+      <AntdApp>
+        <Layout style={{ minHeight: '100vh', background: '#0a0a0a' }}>
+          <AppHeader />
+          <Content style={{ padding: '24px 50px', marginTop: 70, background: '#0a0a0a' }}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/create" element={<CreateCoursePage />} />
+              <Route path="/courses" element={<CoursesListPage />} />
+              <Route path="/courses/:id" element={<CourseViewPage />} />
+              <Route path="/video-test" element={<VideoTestPage />} />
+            </Routes>
+          </Content>
+          <Footer style={{ 
+            textAlign: 'center',
+            background: '#0a0a0a',
+            color: '#808080',
+            padding: '24px 50px',
+            borderTop: '1px solid #2a2a2a'
+          }}>
+            <div>
+              <strong style={{ color: '#b0b0b0' }}>AI Course Builder</strong> ©2025
+            </div>
+          </Footer>
+        </Layout>
+      </AntdApp>
     </ConfigProvider>
   )
 }

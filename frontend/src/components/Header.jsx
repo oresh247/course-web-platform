@@ -3,8 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { 
   HomeOutlined, 
   PlusOutlined, 
-  BookOutlined,
-  RobotOutlined 
+  BookOutlined
+  // RobotOutlined исключаем из использованных
 } from '@ant-design/icons'
 
 const { Header } = Layout
@@ -28,12 +28,8 @@ function AppHeader() {
       key: '/courses',
       icon: <BookOutlined />,
       label: <Link to="/courses">Мои курсы</Link>,
-    },
-    {
-      key: '/video-test',
-      icon: <RobotOutlined />,
-      label: <Link to="/video-test">Тест видео</Link>,
-    },
+    }
+    // Пункт '/video-test' больше не нужен
   ]
 
   return (
@@ -69,7 +65,6 @@ function AppHeader() {
           }}>
             IT_ONE
           </div>
-          
           {/* App Name */}
           <div style={{ 
             color: 'white', 
@@ -81,12 +76,12 @@ function AppHeader() {
             borderLeft: '2px solid rgba(255,255,255,0.3)',
             paddingLeft: '15px'
           }}>
-            <RobotOutlined style={{ fontSize: '26px' }} />
+            {/* Можно оставить RobotOutlined тут, если это иконка логотипа */}
+            {/* <RobotOutlined style={{ fontSize: '26px' }} /> */}
             AI Course Builder
           </div>
         </div>
       </Link>
-      
       <Menu
         mode="horizontal"
         selectedKeys={[currentPath]}
@@ -98,7 +93,6 @@ function AppHeader() {
           borderBottom: 'none',
           fontSize: '16px'
         }}
-        theme="dark"
       />
     </Header>
   )

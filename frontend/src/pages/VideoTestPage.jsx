@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Card, Button, Space, Typography, Row, Col, Select, message } from 'antd'
+import { Card, Button, Space, Typography, Row, Col, Select, App } from 'antd'
 import { PlayCircleOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import VideoGenerationPanel from '../components/VideoGenerationPanel'
 
@@ -7,6 +7,7 @@ const { Title, Text } = Typography
 const { Option } = Select
 
 function VideoTestPage() {
+  const { message } = App.useApp();
   const [lesson, setLesson] = useState({
     id: 1,
     title: "Основы Python программирования",

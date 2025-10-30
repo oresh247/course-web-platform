@@ -66,11 +66,36 @@ class CourseDatabase:
                     lesson_index INTEGER NOT NULL,
                     lesson_title TEXT NOT NULL,
                     content_data TEXT NOT NULL,
+                    video_id TEXT,
+                    video_download_url TEXT,
+                    video_status TEXT,
+                    video_generated_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (course_id) REFERENCES courses (id) ON DELETE CASCADE,
                     UNIQUE (course_id, module_number, lesson_index)
                 )
             """)
+            
+            # Добавляем колонки для видео, если их еще нет (для существующих БД)
+            try:
+                cursor.execute("ALTER TABLE lesson_contents ADD COLUMN video_id TEXT")
+            except sqlite3.OperationalError:
+                pass  # Колонка уже существует
+            
+            try:
+                cursor.execute("ALTER TABLE lesson_contents ADD COLUMN video_download_url TEXT")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE lesson_contents ADD COLUMN video_status TEXT")
+            except sqlite3.OperationalError:
+                pass
+            
+            try:
+                cursor.execute("ALTER TABLE lesson_contents ADD COLUMN video_generated_at TIMESTAMP")
+            except sqlite3.OperationalError:
+                pass
             
             conn.commit()
             logger.info("✅ База данных инициализирована")
@@ -321,6 +346,77 @@ class CourseDatabase:
             
             return None
     
+    def update_lesson_video_info(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int,
+        video_id: Optional[str] = None,
+        video_download_url: Optional[str] = None,
+        video_status: Optional[str] = None,
+        video_generated_at: Optional[datetime] = None
+    ) -> bool:
+        """
+        Обновляет информацию о видео для урока
+        
+        Args:
+            course_id: ID курса
+            module_number: Номер модуля
+            lesson_index: Индекс урока
+            video_id: ID видео в HeyGen
+            video_download_url: URL для скачивания видео
+            video_status: Статус видео
+            video_generated_at: Дата генерации видео
+            
+        Returns:
+            True если обновление прошло успешно
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Сначала проверяем, существует ли запись
+            cursor.execute("""
+                SELECT id FROM lesson_contents
+                WHERE course_id = ? AND module_number = ? AND lesson_index = ?
+            """, (course_id, module_number, lesson_index))
+            
+            row = cursor.fetchone()
+            
+            if row:
+                # Обновляем существующую запись
+                update_fields = []
+                params = []
+                
+                if video_id is not None:
+                    update_fields.append("video_id = ?")
+                    params.append(video_id)
+                
+                if video_download_url is not None:
+                    update_fields.append("video_download_url = ?")
+                    params.append(video_download_url)
+                
+                if video_status is not None:
+                    update_fields.append("video_status = ?")
+                    params.append(video_status)
+                
+                if video_generated_at is not None:
+                    update_fields.append("video_generated_at = ?")
+                    params.append(video_generated_at.isoformat() if isinstance(video_generated_at, datetime) else video_generated_at)
+                
+                if update_fields:
+                    params.extend([course_id, module_number, lesson_index])
+                    cursor.execute(f"""
+                        UPDATE lesson_contents
+                        SET {', '.join(update_fields)}
+                        WHERE course_id = ? AND module_number = ? AND lesson_index = ?
+                    """, params)
+                    conn.commit()
+                    logger.info(f"Обновлена информация о видео для урока {course_id}/{module_number}/{lesson_index}")
+                    return True
+            else:
+                logger.warning(f"Урок {course_id}/{module_number}/{lesson_index} не найден для обновления видео")
+                return False
+
     def save_lesson_content(
         self,
         course_id: int,
@@ -416,6 +512,16 @@ class CourseDatabase:
             
             if row:
                 content_data = json.loads(row['content_data'])
+                
+                # Добавляем информацию о видео, если она есть
+                if row.get('video_id'):
+                    content_data['video_info'] = {
+                        'video_id': row['video_id'],
+                        'video_download_url': row.get('video_download_url'),
+                        'video_status': row.get('video_status'),
+                        'video_generated_at': row.get('video_generated_at')
+                    }
+                
                 return content_data
             
             return None

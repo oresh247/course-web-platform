@@ -8,7 +8,7 @@ import {
   InputNumber, 
   Button, 
   Space,
-  message,
+  App,
   Typography,
   Spin
 } from 'antd'
@@ -19,6 +19,7 @@ const { Title, Paragraph } = Typography
 const { TextArea } = Input
 
 function CreateCoursePage() {
+  const { message } = App.useApp();
   const navigate = useNavigate()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)

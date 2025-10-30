@@ -87,6 +87,12 @@ class Lesson(BaseModel):
     
     # Опциональный детальный контент
     detailed_content: Optional[LessonContent] = None
+    
+    # Информация о видео
+    video_id: Optional[str] = Field(default=None, description="ID видео в HeyGen")
+    video_download_url: Optional[str] = Field(default=None, description="URL для скачивания видео")
+    video_status: Optional[str] = Field(default=None, description="Статус видео (generating, completed, failed)")
+    video_generated_at: Optional[datetime] = Field(default=None, description="Дата генерации видео")
 
 
 class Module(BaseModel):

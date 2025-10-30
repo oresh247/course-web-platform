@@ -119,7 +119,8 @@ async def generate_lesson_content(course_id: int, module_number: int, lesson_ind
             course_id=course_id,
             module_number=module_number,
             lesson_index=lesson_index,
-            content=lesson_content
+            lesson_title=lesson.lesson_title,
+            content_data=lesson_content
         )
         
         logger.info(f"✅ Контент урока {lesson_index} модуля {module_number} сгенерирован")

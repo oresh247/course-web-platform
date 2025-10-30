@@ -8,7 +8,7 @@ import {
   Button,
   Space,
   Tag,
-  message,
+  App,
   Descriptions,
   List,
   Modal,
@@ -16,7 +16,8 @@ import {
   Dropdown,
   Form,
   Input,
-  InputNumber
+  InputNumber,
+  Empty
 } from 'antd'
 import { 
   ArrowLeftOutlined,
@@ -31,9 +32,9 @@ import { coursesApi } from '../api/coursesApi'
 import LessonItem from '../components/LessonItem'
 
 const { Title, Paragraph, Text } = Typography
-const { Panel } = Collapse
 
 function CourseViewPage() {
+  const { message } = App.useApp();
   const { id } = useParams()
   const navigate = useNavigate()
   const [course, setCourse] = useState(null)
@@ -50,26 +51,74 @@ function CourseViewPage() {
   const [lessonContentModal, setLessonContentModal] = useState({ visible: false, lesson: null, content: null })
 
   useEffect(() => {
-    loadCourse()
+    // Проверяем, что id есть и валиден перед загрузкой
+    if (id && id !== 'null' && id !== 'undefined' && String(id).trim() !== '') {
+      loadCourse()
+    } else {
+      console.warn('Course ID is invalid or missing, redirecting to courses list', { id: id, idType: typeof id, idStringified: String(id) })
+      setLoading(false)
+      navigate('/courses')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   const loadCourse = async () => {
+    // Проверяем валидность ID из URL
+    if (!id || id === 'null' || id === 'undefined' || String(id).trim() === '') {
+      console.warn('Invalid course ID from URL:', id)
+      message.warning('ID курса не указан. Перенаправление на список курсов...')
+      setTimeout(() => {
+        navigate('/courses')
+      }, 2000)
+      setLoading(false)
+      return
+    }
+    
     setLoading(true)
     try {
-      const response = await coursesApi.getCourse(id)
-      setCourse(response.course)
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        console.error(`Неверный формат ID курса: "${id}"`)
+        message.error(`Неверный формат ID курса: "${id}"`)
+        navigate('/courses')
+        setLoading(false)
+        return
+      }
+      
+      const response = await coursesApi.getCourse(courseId)
+      if (response && response.course) {
+        setCourse(response.course)
+      } else {
+        throw new Error('Курс не найден')
+      }
     } catch (error) {
       console.error('Error loading course:', error)
-      message.error('Ошибка загрузки курса')
+      
+      // Если курс не найден, перенаправляем на список
+      if (error.response?.status === 404 || error.message?.includes('не найден')) {
+        message.error('Курс не найден')
+        setTimeout(() => {
+          navigate('/courses')
+        }, 2000)
+      } else {
+        message.error('Ошибка загрузки курса. Попробуйте позже.')
+      }
+      
+      setCourse(null)
     } finally {
       setLoading(false)
     }
   }
 
   const handleGenerateContent = async (moduleNumber) => {
+    if (!id || id === 'null' || id === 'undefined') {
+      message.error('Неверный ID курса')
+      return
+    }
     setGeneratingModule(moduleNumber)
     try {
-      const response = await coursesApi.generateModuleContent(id, moduleNumber)
+      const courseId = parseInt(id, 10)
+      const response = await coursesApi.generateModuleContent(courseId, moduleNumber)
       message.success('Контент модуля успешно сгенерирован!')
       
       // Показываем модальное окно с результатом
@@ -93,8 +142,13 @@ function CourseViewPage() {
   }
 
   const handleExport = (format) => {
+    if (!id || id === 'null' || id === 'undefined') {
+      message.error('Неверный ID курса')
+      return
+    }
     const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-    const url = `${baseUrl}/api/courses/${id}/export/${format}`
+    const courseId = parseInt(id, 10)
+    const url = `${baseUrl}/api/courses/${courseId}/export/${format}`
     window.open(url, '_blank')
     message.success(`Экспорт в формате ${format.toUpperCase()} начат`)
   }
@@ -117,7 +171,11 @@ function CourseViewPage() {
         ...values
       }
       
-      await coursesApi.updateCourse(id, updatedCourse)
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        throw new Error(`Неверный формат ID курса: ${id}`)
+      }
+      await coursesApi.updateCourse(courseId, updatedCourse)
       message.success('Курс успешно обновлен!')
       setIsEditModalVisible(false)
       loadCourse() // Перезагружаем курс
@@ -143,7 +201,11 @@ function CourseViewPage() {
           ...values
         }
         
-        await coursesApi.updateCourse(id, updatedCourse)
+        const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        throw new Error(`Неверный формат ID курса: ${id}`)
+      }
+      await coursesApi.updateCourse(courseId, updatedCourse)
         message.success('Модуль обновлен!')
         setEditModuleModal({ visible: false, module: null })
         loadCourse()
@@ -157,7 +219,12 @@ function CourseViewPage() {
   const handleRegenerateModuleGoal = async (moduleNumber) => {
     setRegenerating(true)
     try {
-      const response = await coursesApi.regenerateModuleGoal(id, moduleNumber)
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        message.error('Неверный ID курса')
+        return
+      }
+      const response = await coursesApi.regenerateModuleGoal(courseId, moduleNumber)
       message.success('Цель модуля регенерирована!')
       loadCourse()
       
@@ -198,7 +265,11 @@ function CourseViewPage() {
           content_outline: contentOutline
         }
         
-        await coursesApi.updateCourse(id, updatedCourse)
+        const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        throw new Error(`Неверный формат ID курса: ${id}`)
+      }
+      await coursesApi.updateCourse(courseId, updatedCourse)
         message.success('Урок обновлен!')
         setEditLessonModal({ visible: false, module: null, lesson: null, lessonIndex: null })
         loadCourse()
@@ -212,7 +283,12 @@ function CourseViewPage() {
   const handleRegenerateLessonContent = async (moduleNumber, lessonIndex) => {
     setRegenerating(true)
     try {
-      const response = await coursesApi.regenerateLessonContent(id, moduleNumber, lessonIndex)
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        message.error('Неверный ID курса')
+        return
+      }
+      const response = await coursesApi.regenerateLessonContent(courseId, moduleNumber, lessonIndex)
       message.success('План контента регенерирован!')
       loadCourse()
       
@@ -235,7 +311,12 @@ function CourseViewPage() {
   const handleViewDetailContent = async (moduleNumber) => {
     setLoadingContent(true)
     try {
-      const response = await coursesApi.getModuleContent(id, moduleNumber)
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        message.error('Неверный ID курса')
+        return
+      }
+      const response = await coursesApi.getModuleContent(courseId, moduleNumber)
       setDetailContentModal({
         visible: true,
         moduleNumber,
@@ -261,7 +342,12 @@ function CourseViewPage() {
   const handleGenerateLessonContent = async (moduleNumber, lessonIndex) => {
     setGeneratingLesson(`${moduleNumber}-${lessonIndex}`)
     try {
-      const response = await coursesApi.generateLessonDetailedContent(id, moduleNumber, lessonIndex)
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        message.error('Неверный ID курса')
+        return
+      }
+      const response = await coursesApi.generateLessonDetailedContent(courseId, moduleNumber, lessonIndex)
       message.success('Детальный контент урока успешно сгенерирован!')
       
       Modal.info({
@@ -288,7 +374,12 @@ function CourseViewPage() {
   const handleViewLessonContent = async (moduleNumber, lessonIndex, lesson) => {
     setLoadingContent(true)
     try {
-      const response = await coursesApi.getLessonContent(id, moduleNumber, lessonIndex)
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        message.error('Неверный ID курса')
+        return
+      }
+      const response = await coursesApi.getLessonContent(courseId, moduleNumber, lessonIndex)
       setLessonContentModal({
         visible: true,
         lesson: lesson,
@@ -344,7 +435,12 @@ function CourseViewPage() {
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <Spin size="large" tip="Загрузка курса..." />
+        <Spin size="large">
+          <div style={{ padding: '50px', minHeight: '200px' }} />
+        </Spin>
+        <div style={{ marginTop: 16 }}>
+          <Text>Загрузка курса...</Text>
+        </div>
       </div>
     )
   }
@@ -392,110 +488,113 @@ function CourseViewPage() {
 
         <Title level={3}>Модули курса ({course.modules.length})</Title>
 
-        <Collapse accordion>
-          {course.modules.map((module) => (
-            <Panel
-              key={module.module_number}
-              header={
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>
-                    <strong>Модуль {module.module_number}:</strong> {module.module_title}
-                  </span>
-                  <Space>
-                    <Tag color="green">{module.lessons.length} уроков</Tag>
-                    <Button 
-                      size="small" 
-                      icon={<EditOutlined />}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEditModule(module)
-                      }}
-                    >
-                      Редактировать
-                    </Button>
-                  </Space>
-                </div>
-              }
-            >
-              <Paragraph>
-                <strong>Цель модуля:</strong> {module.module_goal}
-              </Paragraph>
-
-              <Title level={5}>Уроки:</Title>
-              <List
-                dataSource={module.lessons}
-                renderItem={(lesson, index) => (
-                  <List.Item style={{ display: 'block', padding: '16px 0' }}>
-                    <LessonItem
-                      lesson={lesson}
-                      index={index}
-                      moduleNumber={module.module_number}
-                      onGenerateContent={() => handleGenerateLessonContent(module.module_number, index)}
-                      onViewContent={() => handleViewLessonContent(module.module_number, index, lesson)}
-                      onExportContent={(format) => handleExportLessonContent(module.module_number, index, format)}
-                      onEdit={() => handleEditLesson(module, lesson, index)}
-                      isGenerating={generatingLesson === `${module.module_number}-${index}`}
-                    />
-                  </List.Item>
-                )}
-              />
-
-              <div style={{ marginTop: 16 }}>
+        <Collapse 
+          accordion
+          items={course.modules.map((module) => ({
+            key: module.module_number,
+            label: (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                  <strong>Модуль {module.module_number}:</strong> {module.module_title}
+                </span>
                 <Space>
-                  <Button
-                    type="primary"
-                    icon={<ThunderboltOutlined style={{ color: '#5E8A30' }} />}
-                    loading={generatingModule === module.module_number}
-                    onClick={() => handleGenerateContent(module.module_number)}
+                  <Tag color="green">{module.lessons.length} уроков</Tag>
+                  <Button 
+                    size="small" 
+                    icon={<EditOutlined />}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleEditModule(module)
+                    }}
                   >
-                    Сгенерировать детальный контент (лекции и слайды)
+                    Редактировать
                   </Button>
-                  <Button
-                    icon={<BookOutlined />}
-                    loading={loadingContent}
-                    onClick={() => handleViewDetailContent(module.module_number)}
-                  >
-                    Просмотреть детальный контент
-                  </Button>
-                  <Dropdown 
-                    menu={{ 
-                      items: [
-                        {
-                          key: 'pptx',
-                          label: '📊 PowerPoint (слайды)',
-                          onClick: () => handleExportModuleContent(module.module_number, 'pptx')
-                        },
-                        {
-                          key: 'html',
-                          label: '📄 HTML',
-                          onClick: () => handleExportModuleContent(module.module_number, 'html')
-                        },
-                        {
-                          type: 'divider'
-                        },
-                        {
-                          key: 'markdown',
-                          label: '📝 Markdown',
-                          onClick: () => handleExportModuleContent(module.module_number, 'markdown')
-                        },
-                        {
-                          key: 'json',
-                          label: '🔧 JSON',
-                          onClick: () => handleExportModuleContent(module.module_number, 'json')
-                        }
-                      ]
-                    }} 
-                    placement="bottomRight"
-                  >
-                    <Button icon={<DownloadOutlined />}>
-                      Экспортировать детальный контент
-                    </Button>
-                  </Dropdown>
                 </Space>
               </div>
-            </Panel>
-          ))}
-        </Collapse>
+            ),
+            children: (
+              <div>
+                <Paragraph>
+                  <strong>Цель модуля:</strong> {module.module_goal}
+                </Paragraph>
+
+                <Title level={5}>Уроки:</Title>
+                <List
+                  dataSource={module.lessons}
+                  renderItem={(lesson, index) => (
+                    <List.Item style={{ display: 'block', padding: '16px 0' }}>
+                      <LessonItem
+                        lesson={lesson}
+                        index={index}
+                        moduleNumber={module.module_number}
+                        courseId={id ? parseInt(id, 10) : null}
+                        onGenerateContent={() => handleGenerateLessonContent(module.module_number, index)}
+                        onViewContent={() => handleViewLessonContent(module.module_number, index, lesson)}
+                        onExportContent={(format) => handleExportLessonContent(module.module_number, index, format)}
+                        onEdit={() => handleEditLesson(module, lesson, index)}
+                        isGenerating={generatingLesson === `${module.module_number}-${index}`}
+                      />
+                    </List.Item>
+                  )}
+                />
+
+                <div style={{ marginTop: 16 }}>
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={<ThunderboltOutlined style={{ color: '#5E8A30' }} />}
+                      loading={generatingModule === module.module_number}
+                      onClick={() => handleGenerateContent(module.module_number)}
+                    >
+                      Сгенерировать детальный контент (лекции и слайды)
+                    </Button>
+                    <Button
+                      icon={<BookOutlined />}
+                      loading={loadingContent}
+                      onClick={() => handleViewDetailContent(module.module_number)}
+                    >
+                      Просмотреть детальный контент
+                    </Button>
+                    <Dropdown 
+                      menu={{ 
+                        items: [
+                          {
+                            key: 'pptx',
+                            label: '📊 PowerPoint (слайды)',
+                            onClick: () => handleExportModuleContent(module.module_number, 'pptx')
+                          },
+                          {
+                            key: 'html',
+                            label: '📄 HTML',
+                            onClick: () => handleExportModuleContent(module.module_number, 'html')
+                          },
+                          {
+                            type: 'divider'
+                          },
+                          {
+                            key: 'markdown',
+                            label: '📝 Markdown',
+                            onClick: () => handleExportModuleContent(module.module_number, 'markdown')
+                          },
+                          {
+                            key: 'json',
+                            label: '🔧 JSON',
+                            onClick: () => handleExportModuleContent(module.module_number, 'json')
+                          }
+                        ]
+                      }} 
+                      placement="bottomRight"
+                    >
+                      <Button icon={<DownloadOutlined />}>
+                        Экспортировать детальный контент
+                      </Button>
+                    </Dropdown>
+                  </Space>
+                </div>
+              </div>
+            )
+          }))}
+        />
 
         <div style={{ marginTop: 24 }}>
           <Space>

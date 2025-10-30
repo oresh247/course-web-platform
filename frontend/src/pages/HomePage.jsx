@@ -116,7 +116,9 @@ function HomePage() {
                   border: '1px solid #2a2a2a',
                   transition: 'all 0.3s ease'
                 }}
-                bodyStyle={{ padding: '30px 20px' }}
+                styles={{
+                  body: { padding: '30px 20px' }
+                }}
               >
                 <div style={{ marginBottom: 20 }}>
                   {feature.icon}
@@ -142,7 +144,9 @@ function HomePage() {
           border: '1px solid #2a2a2a',
           boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
         }}
-        bodyStyle={{ padding: '40px' }}
+        styles={{
+          body: { padding: '40px' }
+        }}
       >
         <Title level={2} style={{ textAlign: 'center', marginBottom: 40, color: '#ffffff' }}>
           Как это работает?

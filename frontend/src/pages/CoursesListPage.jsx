@@ -8,7 +8,7 @@ import {
   Tag, 
   Empty,
   Spin,
-  message,
+  App,
   Popconfirm,
   Typography
 } from 'antd'
@@ -25,6 +25,7 @@ import { coursesApi } from '../api/coursesApi'
 const { Title, Paragraph, Text } = Typography
 
 function CoursesListPage() {
+  const { message } = App.useApp();
   const navigate = useNavigate()
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
@@ -144,10 +145,12 @@ function CoursesListPage() {
                   transition: 'all 0.3s ease',
                   height: '100%'
                 }}
-                bodyStyle={{ 
-                  paddingBottom: '80px',
-                  position: 'relative',
-                  minHeight: '200px'
+                styles={{
+                  body: {
+                    paddingBottom: '80px',
+                    position: 'relative',
+                    minHeight: '200px'
+                  }
                 }}
                 actions={[
                   <Button 
