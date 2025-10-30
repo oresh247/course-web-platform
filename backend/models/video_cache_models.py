@@ -17,7 +17,7 @@ class VideoCache(BaseModel):
     quality: str
     status: str  # completed, failed, generating
     download_url: Optional[str] = None
-    duration: Optional[int] = None
+    duration: Optional[float] = None
     file_size: Optional[int] = None
     created_at: datetime
     updated_at: datetime

@@ -147,7 +147,7 @@ class VideoCacheService:
     
     def update_video_status(self, video_id: str, status: str, 
                            download_url: Optional[str] = None,
-                           duration: Optional[int] = None,
+                           duration: Optional[float] = None,
                            file_size: Optional[int] = None,
                            error_message: Optional[str] = None,
                            error_code: Optional[str] = None):
