@@ -3,7 +3,8 @@ import { Link, useLocation } from 'react-router-dom'
 import { 
   HomeOutlined, 
   PlusOutlined, 
-  BookOutlined
+  BookOutlined,
+  QuestionCircleOutlined
   // RobotOutlined исключаем из использованных
 } from '@ant-design/icons'
 
@@ -47,13 +48,9 @@ function AppHeader() {
         height: '70px'
       }}
     >
-      <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px'
-        }}>
-          {/* IT-ONE Logo */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* IT-ONE Logo (external link) */}
+        <a href="https://www.it-one.ru/" target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
           <div style={{
             background: 'white',
             borderRadius: '8px',
@@ -65,7 +62,9 @@ function AppHeader() {
           }}>
             IT_ONE
           </div>
-          {/* App Name */}
+        </a>
+        {/* App Name (link to home) */}
+        <Link to="/" style={{ textDecoration: 'none' }}>
           <div style={{ 
             color: 'white', 
             fontSize: '22px', 
@@ -76,12 +75,10 @@ function AppHeader() {
             borderLeft: '2px solid rgba(255,255,255,0.3)',
             paddingLeft: '15px'
           }}>
-            {/* Можно оставить RobotOutlined тут, если это иконка логотипа */}
-            {/* <RobotOutlined style={{ fontSize: '26px' }} /> */}
             AI Course Builder
           </div>
-        </div>
-      </Link>
+        </Link>
+      </div>
       <Menu
         mode="horizontal"
         selectedKeys={[currentPath]}
@@ -94,6 +91,20 @@ function AppHeader() {
           fontSize: '16px'
         }}
       />
+      <a
+        href="/user-guide.html"
+        target="_blank"
+        rel="noreferrer"
+        title="Инструкция для пользователя"
+        style={{
+          marginLeft: 'auto',
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center'
+        }}
+      >
+        <QuestionCircleOutlined style={{ fontSize: 22 }} />
+      </a>
     </Header>
   )
 }

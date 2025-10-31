@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import os
+from backend.config import settings
 
 from .mock_heygen_service import AdaptiveHeyGenService
 from .generation_service import GenerationService
@@ -21,8 +22,8 @@ class VideoGenerationService:
         self.heygen_service = AdaptiveHeyGenService()
         
         # Настройки по умолчанию для видео
-        self.default_avatar_id = os.getenv('HEYGEN_DEFAULT_AVATAR_ID', 'Abigail_expressive_2024112501')
-        self.default_voice_id = os.getenv('HEYGEN_DEFAULT_VOICE_ID', '9799f1ba6acd4b2b993fe813a18f9a91')
+        self.default_avatar_id = settings.HEYGEN_DEFAULT_AVATAR_ID
+        self.default_voice_id = settings.HEYGEN_DEFAULT_VOICE_ID
         
         logger.info("VideoGenerationService инициализирован")
     

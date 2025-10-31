@@ -577,6 +577,60 @@ class RenderDatabase:
         except psycopg2.Error as e:
             logger.error(f"Ошибка получения контента урока: {e}")
             raise
+
+    def delete_lesson_content(self, course_id: int, module_number: int, lesson_index: int) -> int:
+        """Удалить запись детального контента одного урока."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        DELETE FROM lesson_contents
+                        WHERE course_id = %s AND module_number = %s AND lesson_index = %s
+                        """,
+                        (course_id, module_number, lesson_index),
+                    )
+                    conn.commit()
+                    return cursor.rowcount
+        except psycopg2.Error as e:
+            logger.error(f"Ошибка удаления контента урока: {e}")
+            raise
+
+    def delete_module_content(self, course_id: int, module_number: int) -> int:
+        """Удалить запись детального контента модуля."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        DELETE FROM module_contents
+                        WHERE course_id = %s AND module_number = %s
+                        """,
+                        (course_id, module_number),
+                    )
+                    conn.commit()
+                    return cursor.rowcount
+        except psycopg2.Error as e:
+            logger.error(f"Ошибка удаления контента модуля: {e}")
+            raise
+
+    def delete_lesson_contents_for_module(self, course_id: int, module_number: int) -> int:
+        """Удалить все записи детального контента уроков для указанного модуля."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        DELETE FROM lesson_contents
+                        WHERE course_id = %s AND module_number = %s
+                        """,
+                        (course_id, module_number),
+                    )
+                    conn.commit()
+                    return cursor.rowcount
+        except psycopg2.Error as e:
+            logger.error(f"Ошибка удаления контента уроков: {e}")
+            raise
     
     def update_lesson_video_info(
         self,

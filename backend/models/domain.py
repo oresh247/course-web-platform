@@ -150,6 +150,15 @@ class ModuleContent(BaseModel):
     estimated_duration_minutes: int = Field(default=0)
 
 
+class GeneratedLecture(BaseModel):
+    """Лекция без полей модуля — форма, которую возвращает ИИ для одного урока."""
+    lecture_title: str
+    duration_minutes: int = Field(default=45, ge=15, le=240)
+    slides: List[Slide] = Field(default_factory=list)
+    learning_objectives: List[str] = Field(default_factory=list)
+    key_takeaways: List[str] = Field(default_factory=list)
+
+
 # ============================================================================
 # API МОДЕЛИ (для запросов/ответов)
 # ============================================================================

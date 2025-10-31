@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { 
   Card, 
@@ -23,6 +23,7 @@ import {
   ArrowLeftOutlined,
   BookOutlined,
   EditOutlined,
+  MoreOutlined,
   ThunderboltOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -34,7 +35,7 @@ import LessonItem from '../components/LessonItem'
 const { Title, Paragraph, Text } = Typography
 
 function CourseViewPage() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { id } = useParams()
   const navigate = useNavigate()
   const [course, setCourse] = useState(null)
@@ -44,6 +45,18 @@ function CourseViewPage() {
   const [editForm, setEditForm] = useState(null)
   const [editModuleModal, setEditModuleModal] = useState({ visible: false, module: null })
   const [editLessonModal, setEditLessonModal] = useState({ visible: false, module: null, lesson: null, lessonIndex: null })
+  const [duplicateModuleModal, setDuplicateModuleModal] = useState({ visible: false, module: null })
+  const [duplicateModuleForm] = Form.useForm()
+  const [duplicating, setDuplicating] = useState(false)
+  const [duplicateCancelRequested, setDuplicateCancelRequested] = useState(false)
+  const duplicateAbortRef = useRef(null)
+
+  // Дублирование урока: индикаторы/отмена
+  const [duplicatingLesson, setDuplicatingLesson] = useState({ inProgress: false, moduleNumber: null, lessonIndex: null })
+  const [duplicateLessonCancelRequested, setDuplicateLessonCancelRequested] = useState(false)
+  const duplicateLessonAbortRef = useRef(null)
+  const [duplicateLessonModal, setDuplicateLessonModal] = useState({ visible: false, module: null, lessonIndex: null })
+  const [duplicateLessonForm] = Form.useForm()
   const [regenerating, setRegenerating] = useState(false)
   const [detailContentModal, setDetailContentModal] = useState({ visible: false, moduleNumber: null, content: null })
   const [loadingContent, setLoadingContent] = useState(false)
@@ -190,6 +203,69 @@ function CourseViewPage() {
     setEditModuleModal({ visible: true, module })
   }
 
+  // Дублирование модуля
+  const handleDuplicateModuleOpen = (module) => {
+    const copyTitle = `КОПИЯ ${module.module_title}`
+    setDuplicateModuleModal({ visible: true, module })
+    setDuplicateCancelRequested(false)
+    // проставим значения в форму
+    setTimeout(() => {
+      try {
+        duplicateModuleForm.setFieldsValue({
+          module_title: copyTitle,
+          module_goal: module.module_goal
+        })
+      } catch (e) {}
+    }, 0)
+  }
+
+  const handleDuplicateModuleSave = async (values) => {
+    try {
+      setDuplicating(true)
+      setDuplicateCancelRequested(false)
+      // Создаём AbortController для возможности отмены
+      const controller = new AbortController()
+      duplicateAbortRef.current = controller
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        throw new Error(`Неверный формат ID курса: ${id}`)
+      }
+      const payload = {
+        module_title: values.module_title,
+        module_goal: values.module_goal,
+      }
+      const resp = await coursesApi.duplicateModule(
+        courseId,
+        duplicateModuleModal.module.module_number,
+        payload,
+        { signal: controller.signal }
+      )
+      const newNum = resp?.new_module_number
+      if (duplicateCancelRequested && newNum) {
+        try {
+          await coursesApi.deleteModule(courseId, newNum)
+          message.info('Дублирование было отменено. Копия удалена.')
+        } catch (e) {
+          console.warn('Не удалось удалить копию после отмены:', e)
+        }
+      } else {
+        setDuplicateModuleModal({ visible: false, module: null })
+        await loadCourse()
+        message.success('Модуль успешно продублирован')
+      }
+    } catch (error) {
+      console.error('Error duplicating module:', error)
+      if (error?.name === 'CanceledError' || error?.message?.includes('canceled')) {
+        message.info('Дублирование отменено')
+      } else {
+        message.error('Ошибка дублирования модуля')
+      }
+    } finally {
+      setDuplicating(false)
+      duplicateAbortRef.current = null
+    }
+  }
+
   const handleModuleSave = async (values) => {
     try {
       const updatedCourse = { ...course }
@@ -280,6 +356,169 @@ function CourseViewPage() {
     }
   }
 
+  // Дублирование урока
+  const handleOpenDuplicateLesson = (module, lessonIndex, lesson) => {
+    setDuplicateLessonModal({ visible: true, module, lessonIndex })
+    setTimeout(() => {
+      try {
+        duplicateLessonForm.setFieldsValue({
+          lesson_title: `КОПИЯ ${lesson.lesson_title}`,
+          lesson_goal: lesson.lesson_goal,
+          content_outline: Array.isArray(lesson.content_outline) ? lesson.content_outline.join('\n') : '',
+          assessment: lesson.assessment || ''
+        })
+      } catch (_) {}
+    }, 0)
+  }
+
+  const handleDuplicateLesson = async (module, lessonIndex, values) => {
+    try {
+      const courseId = parseInt(id, 10)
+      if (isNaN(courseId)) {
+        message.error('Неверный ID курса')
+        return
+      }
+      setDuplicatingLesson({ inProgress: true, moduleNumber: module.module_number, lessonIndex })
+      setDuplicateLessonCancelRequested(false)
+      const controller = new AbortController()
+      duplicateLessonAbortRef.current = controller
+      const payload = {
+        lesson_title: values.lesson_title,
+        lesson_goal: values.lesson_goal,
+        content_outline: typeof values.content_outline === 'string' ? values.content_outline.split('\n').filter(l => l.trim()) : (values.content_outline || []),
+        assessment: values.assessment,
+      }
+      const resp = await coursesApi.duplicateLesson(courseId, module.module_number, lessonIndex, payload, { signal: controller.signal })
+      const newIndex = resp?.new_lesson_index
+      if (duplicateLessonCancelRequested && (newIndex !== undefined && newIndex !== null)) {
+        try {
+          await coursesApi.deleteLesson(courseId, module.module_number, newIndex)
+          message.info('Дублирование было отменено. Копия урока удалена.')
+        } catch (e) {
+          console.warn('Не удалось удалить копию урока после отмены:', e)
+        }
+      } else if (newIndex === undefined || newIndex === null) {
+        await loadCourse()
+        message.success('Урок продублирован')
+        return
+      }
+      await loadCourse()
+      setDuplicateLessonModal({ visible: false, module: null, lessonIndex: null })
+      message.success('Урок продублирован')
+    } catch (e) {
+      console.error('Error duplicating lesson:', e)
+      if (e?.name === 'CanceledError' || e?.message?.includes('canceled')) {
+        message.info('Дублирование урока отменено')
+      } else {
+        message.error('Ошибка дублирования урока')
+      }
+    }
+    finally {
+      setDuplicatingLesson({ inProgress: false, moduleNumber: null, lessonIndex: null })
+      duplicateLessonAbortRef.current = null
+    }
+  }
+
+  const handleDeleteLesson = async (module, lessonIndex) => {
+    modal.confirm({
+      title: 'Удалить урок?',
+      content: 'Урок и его детальный контент будут удалены без возможности восстановления.',
+      okText: 'Удалить',
+      okType: 'danger',
+      cancelText: 'Отмена',
+      onOk: async () => {
+        try {
+          const courseId = parseInt(id, 10)
+          if (isNaN(courseId)) throw new Error('Неверный ID курса')
+          await coursesApi.deleteLesson(courseId, module.module_number, lessonIndex)
+          await loadCourse()
+          message.success('Урок удалён')
+        } catch (e) {
+          console.error('Error deleting lesson:', e)
+          message.error('Ошибка удаления урока')
+        }
+      }
+    })
+  }
+
+  // Модалка-индикатор для дублирования урока
+  const renderDuplicateLessonModal = () => (
+    <Modal
+      title={`Дублирование урока${duplicatingLesson.lessonIndex !== null ? ` #${duplicatingLesson.lessonIndex + 1}` : ''}`}
+      open={duplicateLessonModal.visible}
+      onCancel={() => {
+        if (duplicatingLesson.inProgress) {
+          try { duplicateLessonAbortRef.current?.abort() } catch (_) {}
+          setDuplicateLessonCancelRequested(true)
+        }
+        setDuplicateLessonModal({ visible: false, module: null, lessonIndex: null })
+      }}
+      footer={null}
+      width={480}
+    >
+      <Spin spinning={duplicatingLesson.inProgress}>
+      <Form
+        form={duplicateLessonForm}
+        layout="vertical"
+        onFinish={(vals) => duplicateLessonModal.module && handleDuplicateLesson(duplicateLessonModal.module, duplicateLessonModal.lessonIndex, vals)}
+        disabled={duplicatingLesson.inProgress}
+      >
+          {duplicatingLesson.inProgress && (
+            <div style={{ marginBottom: 8 }}>
+              <Space>
+                <Spin size="small" />
+                <span>Дублирование...</span>
+              </Space>
+            </div>
+          )}
+        <Form.Item
+          label="Название урока"
+          name="lesson_title"
+          rules={[{ required: true, message: 'Введите название урока' }]}
+        >
+          <Input placeholder="Например: КОПИЯ Введение в Python" />
+        </Form.Item>
+        <Form.Item
+          label="Цель урока"
+          name="lesson_goal"
+          rules={[{ required: true, message: 'Введите цель урока' }]}
+        >
+          <Input.TextArea rows={2} placeholder="Опишите цель урока" />
+        </Form.Item>
+        <Form.Item
+          label="План контента (по строке на пункт)"
+          name="content_outline"
+        >
+          <Input.TextArea rows={6} placeholder="Пункты плана, по одному на строку" />
+        </Form.Item>
+        <Form.Item
+          label="Оценка"
+          name="assessment"
+        >
+          <Input.TextArea rows={2} placeholder="Например: Тест из 10 вопросов" />
+        </Form.Item>
+        <Space>
+          <Button type="primary" htmlType="submit" loading={duplicatingLesson.inProgress}>
+            Дублировать
+          </Button>
+          <Button
+            onClick={() => {
+              if (duplicatingLesson.inProgress) {
+                try { duplicateLessonAbortRef.current?.abort() } catch (_) {}
+                setDuplicateLessonCancelRequested(true)
+              }
+              setDuplicateLessonModal({ visible: false, module: null, lessonIndex: null })
+            }}
+            disabled={duplicatingLesson.inProgress}
+          >
+            Отмена
+          </Button>
+        </Space>
+      </Form>
+      </Spin>
+    </Modal>
+  )
+
   const handleRegenerateLessonContent = async (moduleNumber, lessonIndex) => {
     setRegenerating(true)
     try {
@@ -310,6 +549,8 @@ function CourseViewPage() {
   // Просмотр детального контента модуля
   const handleViewDetailContent = async (moduleNumber) => {
     setLoadingContent(true)
+    const loadingKey = 'view-module-content'
+    try { message.loading({ content: 'Загрузка детального контента модуля...', key: loadingKey, duration: 0 }) } catch (_) {}
     try {
       const courseId = parseInt(id, 10)
       if (isNaN(courseId)) {
@@ -327,6 +568,7 @@ function CourseViewPage() {
       message.error('Детальный контент еще не сгенерирован. Сначала сгенерируйте контент.')
     } finally {
       setLoadingContent(false)
+      try { message.destroy(loadingKey) } catch (_) {}
     }
   }
 
@@ -373,6 +615,8 @@ function CourseViewPage() {
   // Просмотр детального контента урока
   const handleViewLessonContent = async (moduleNumber, lessonIndex, lesson) => {
     setLoadingContent(true)
+    const loadingKey = 'view-lesson-content'
+    try { message.loading({ content: 'Загрузка детального контента урока...', key: loadingKey, duration: 0 }) } catch (_) {}
     try {
       const courseId = parseInt(id, 10)
       if (isNaN(courseId)) {
@@ -390,6 +634,7 @@ function CourseViewPage() {
       message.error('Детальный контент урока еще не сгенерирован. Сначала сгенерируйте контент.')
     } finally {
       setLoadingContent(false)
+      try { message.destroy(loadingKey) } catch (_) {}
     }
   }
 
@@ -506,9 +751,56 @@ function CourseViewPage() {
                       e.stopPropagation()
                       handleEditModule(module)
                     }}
+                    title="Редактировать модуль"
+                  />
+                  <Dropdown
+                    trigger={["hover"]}
+                    menu={{
+                      items: [
+                        {
+                          key: 'duplicate',
+                          label: 'Дублировать модуль',
+                          onClick: (info) => handleDuplicateModuleOpen(module)
+                        },
+                        {
+                          type: 'divider'
+                        },
+                        {
+                          key: 'delete',
+                          label: 'Удалить модуль',
+                          danger: true,
+                          onClick: () => {
+                            modal.confirm({
+                              title: 'Удалить модуль?',
+                              content: 'Модуль и весь связанный детальный контент уроков будет удалён без возможности восстановления.',
+                              okText: 'Удалить',
+                              okType: 'danger',
+                              cancelText: 'Отмена',
+                              onOk: async () => {
+                                try {
+                                  const courseId = parseInt(id, 10)
+                                  if (isNaN(courseId)) throw new Error('Неверный ID курса')
+                                  await coursesApi.deleteModule(courseId, module.module_number)
+                                  message.success('Модуль удалён')
+                                  await loadCourse()
+                                } catch (e) {
+                                  console.error('Error deleting module:', e)
+                                  message.error('Ошибка удаления модуля')
+                                }
+                              }
+                            })
+                          }
+                        }
+                      ]
+                    }}
                   >
-                    Редактировать
-                  </Button>
+                    <Button 
+                      size="small"
+                      icon={<MoreOutlined />}
+                      onClick={(e) => { e.stopPropagation() }}
+                      title="Дополнительно"
+                    />
+                  </Dropdown>
                 </Space>
               </div>
             ),
@@ -532,6 +824,8 @@ function CourseViewPage() {
                         onViewContent={() => handleViewLessonContent(module.module_number, index, lesson)}
                         onExportContent={(format) => handleExportLessonContent(module.module_number, index, format)}
                         onEdit={() => handleEditLesson(module, lesson, index)}
+                        onDuplicate={(lessonIndex, lsn) => handleOpenDuplicateLesson(module, lessonIndex, lsn || lesson)}
+                        onDelete={(lessonIndex) => handleDeleteLesson(module, lessonIndex)}
                         isGenerating={generatingLesson === `${module.module_number}-${index}`}
                       />
                     </List.Item>
@@ -673,6 +967,88 @@ function CourseViewPage() {
               </Space>
             </Form.Item>
           </Form>
+        )}
+      </Modal>
+
+      {/* Модальное окно дублирования модуля */}
+      <Modal
+        title="Дублировать модуль"
+        open={duplicateModuleModal.visible}
+        onCancel={() => {
+          if (duplicating) {
+            setDuplicateCancelRequested(true)
+            try { duplicateAbortRef.current?.abort() } catch (_) {}
+          }
+          setDuplicateModuleModal({ visible: false, module: null })
+        }}
+        footer={null}
+        width={700}
+      >
+        {duplicateModuleModal.module && (
+          <Spin spinning={duplicating} tip="Дублирование...">
+          <Form
+            form={duplicateModuleForm}
+            layout="vertical"
+            initialValues={{
+              module_title: `КОПИЯ ${duplicateModuleModal.module.module_title}`,
+              module_goal: duplicateModuleModal.module.module_goal
+            }}
+            onFinish={handleDuplicateModuleSave}
+            disabled={duplicating}
+          >
+            <Form.Item
+              label="Название модуля"
+              name="module_title"
+              rules={[{ required: true, message: 'Введите название модуля' }]}
+            >
+              <Input placeholder="Например: КОПИЯ Основы Python" />
+            </Form.Item>
+
+            <Form.Item
+              label={
+                <Space>
+                  <span>Цель модуля</span>
+                  <Button 
+                    size="small" 
+                    type="link" 
+                    icon={<ThunderboltOutlined style={{ color: '#5E8A30' }} />}
+                    loading={regenerating}
+                    onClick={async () => {
+                      try {
+                        setRegenerating(true)
+                        await handleRegenerateModuleGoal(duplicateModuleModal.module.module_number)
+                        // В форму можно проставить новое значение при необходимости —
+                        // если бэкенд вернул его в состоянии, пере-открытие/перезагрузка курса обновит модал.
+                      } finally {
+                        setRegenerating(false)
+                      }
+                    }}
+                  >
+                    Сгенерировать с помощью AI
+                  </Button>
+                </Space>
+              }
+              name="module_goal"
+              rules={[{ required: true, message: 'Введите цель модуля' }]}
+            >
+              <Input.TextArea 
+                rows={3} 
+                placeholder="Опишите цель модуля"
+              />
+            </Form.Item>
+
+            <Form.Item>
+              <Space>
+                <Button type="primary" htmlType="submit" loading={duplicating}>
+                  Дублировать
+                </Button>
+                <Button onClick={() => setDuplicateModuleModal({ visible: false, module: null })} disabled={duplicating}>
+                  Отмена
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+          </Spin>
         )}
       </Modal>
 
@@ -1053,6 +1429,8 @@ function CourseViewPage() {
           </div>
         )}
       </Modal>
+
+      {renderDuplicateLessonModal()}
     </div>
   )
 }

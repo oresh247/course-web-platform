@@ -43,6 +43,16 @@ async def create_course(request: CourseCreateRequest):
                 detail="Не удалось сгенерировать структуру курса. Проверьте настройки OpenAI API."
             )
         
+        # Гарантируем, что длительность видна на карточке курсов
+        # hours_per_week маппим в duration_hours (для отображения "N недель (X часов)")
+        if request.hours_per_week is not None:
+            try:
+                course_data["duration_hours"] = int(request.hours_per_week)
+            except Exception:
+                course_data["duration_hours"] = request.hours_per_week
+        if request.duration_weeks is not None:
+            course_data["duration_weeks"] = request.duration_weeks
+
         course = Course(**course_data)
         course_id = db.save_course(course.dict())
         

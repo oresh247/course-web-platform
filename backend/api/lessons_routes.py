@@ -2,6 +2,7 @@
 API endpoints для работы с уроками курса
 """
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 import logging
 import json
 
@@ -19,6 +20,119 @@ router = APIRouter(prefix="/api/courses", tags=["lessons"])
 
 # Инициализируем генератор контента
 content_generator = ContentGenerator()
+class DuplicateLessonRequest(BaseModel):
+    lesson_title: str
+    lesson_goal: str
+    content_outline: list[str] | None = None
+    assessment: str | None = None
+
+
+@router.post("/{course_id}/modules/{module_number}/lessons/{lesson_index}/duplicate", response_model=dict)
+async def duplicate_lesson(course_id: int, module_number: int, lesson_index: int, body: DuplicateLessonRequest):
+    """Создать полную копию урока (включая детальный контент) с новым индексом."""
+    try:
+        course_data = db.get_course(course_id)
+        if not course_data:
+            raise HTTPException(status_code=404, detail="Курс не найден")
+
+        # Работаем с сырыми данными
+        raw_course = dict(course_data)
+        raw_course.pop('id', None)
+        raw_course.pop('created_at', None)
+        raw_course.pop('updated_at', None)
+
+        modules = raw_course.get('modules') or []
+        source_module = next((m for m in modules if int(m.get('module_number', -1)) == int(module_number)), None)
+        if not source_module:
+            raise HTTPException(status_code=404, detail="Модуль не найден")
+        lessons = source_module.get('lessons') or []
+        if lesson_index < 0 or lesson_index >= len(lessons):
+            raise HTTPException(status_code=404, detail="Урок не найден")
+
+        import copy
+        new_lesson = copy.deepcopy(lessons[lesson_index])
+        new_lesson['lesson_title'] = body.lesson_title
+        new_lesson['lesson_goal'] = body.lesson_goal
+        if body.content_outline is not None:
+            new_lesson['content_outline'] = body.content_outline
+        if body.assessment is not None:
+            new_lesson['assessment'] = body.assessment
+
+        lessons.append(new_lesson)
+        source_module['lessons'] = lessons
+        raw_course['modules'] = modules
+
+        saved = db.update_course(course_id, raw_course)
+        if not saved:
+            raise HTTPException(status_code=500, detail="Не удалось сохранить копию урока")
+
+        # Новый индекс — в конце списка
+        new_index = len(lessons) - 1
+
+        # Копируем детальный контент урока, если есть
+        try:
+            src_content = db.get_lesson_content(course_id, module_number, lesson_index)
+            if src_content:
+                db.save_lesson_content(
+                    course_id=course_id,
+                    module_number=module_number,
+                    lesson_index=new_index,
+                    lesson_title=new_lesson.get('lesson_title') or '',
+                    content_data=src_content
+                )
+        except Exception as e:
+            logger.warning(f"Не удалось скопировать контент урока: {e}")
+
+        return {"status": "duplicated", "new_lesson_index": new_index}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка дублирования урока: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{course_id}/modules/{module_number}/lessons/{lesson_index}", response_model=dict)
+async def delete_lesson(course_id: int, module_number: int, lesson_index: int):
+    """Удалить урок из модуля и его детальный контент."""
+    try:
+        course_data = db.get_course(course_id)
+        if not course_data:
+            raise HTTPException(status_code=404, detail="Курс не найден")
+
+        raw_course = dict(course_data)
+        raw_course.pop('id', None)
+        raw_course.pop('created_at', None)
+        raw_course.pop('updated_at', None)
+
+        modules = raw_course.get('modules') or []
+        source_module = next((m for m in modules if int(m.get('module_number', -1)) == int(module_number)), None)
+        if not source_module:
+            raise HTTPException(status_code=404, detail="Модуль не найден")
+        lessons = source_module.get('lessons') or []
+        if lesson_index < 0 or lesson_index >= len(lessons):
+            raise HTTPException(status_code=404, detail="Урок не найден")
+
+        # Удаляем урок
+        del lessons[lesson_index]
+        source_module['lessons'] = lessons
+        raw_course['modules'] = modules
+
+        saved = db.update_course(course_id, raw_course)
+        if not saved:
+            raise HTTPException(status_code=500, detail="Не удалось обновить курс")
+
+        # Удаляем детальный контент урока
+        try:
+            _ = db.delete_lesson_content(course_id, module_number, lesson_index)
+        except Exception as e:
+            logger.warning(f"Не удалось удалить контент урока: {e}")
+
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка удаления урока: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{course_id}/modules/{module_number}/lessons/{lesson_index}/regenerate-content", response_model=dict)

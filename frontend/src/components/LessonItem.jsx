@@ -6,9 +6,11 @@ import {
   ClockCircleOutlined,
   DownloadOutlined,
   PlayCircleOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  MoreOutlined
 } from '@ant-design/icons'
 import { useState, useEffect } from 'react'
+import { App } from 'antd'
 import LessonVideoGenerator from './LessonVideoGenerator'
 import { getVideoApiUrl } from '../config/api'
 
@@ -21,16 +23,36 @@ const LessonItem = ({
   onViewContent,
   onExportContent,
   onEdit,
+  onDuplicate,
+  onDelete,
   isGenerating
 }) => {
+  const { message } = App.useApp ? App.useApp() : { message: { loading: () => {}, destroy: () => {}, success: () => {}, error: () => {} } };
   const [videoInfo, setVideoInfo] = useState(null);
   const [loadingVideoInfo, setLoadingVideoInfo] = useState(false);
+  const [openingVideo, setOpeningVideo] = useState(false);
+  const [hasDetailContent, setHasDetailContent] = useState(false);
   
   // Загружаем информацию о видео при монтировании
   useEffect(() => {
     if (courseId && moduleNumber !== undefined && index !== undefined) {
       loadVideoInfo();
     }
+  }, [courseId, moduleNumber, index]);
+
+  // Проверяем наличие детального контента для подсветки иконки
+  useEffect(() => {
+    const checkDetail = async () => {
+      try {
+        if (!courseId || moduleNumber === undefined || index === undefined) return;
+        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const resp = await fetch(`${baseUrl}/api/courses/${courseId}/modules/${moduleNumber}/lessons/${index}/content`);
+        setHasDetailContent(resp.ok);
+      } catch (e) {
+        setHasDetailContent(false);
+      }
+    };
+    checkDetail();
   }, [courseId, moduleNumber, index]);
   
   const loadVideoInfo = async () => {
@@ -153,41 +175,39 @@ const LessonItem = ({
     }
   };
   
-  const handleWatchVideo = () => {
+  const handleWatchVideo = async () => {
     console.log('handleWatchVideo вызвана', videoInfo);
-    // Перед просмотром проверяем актуальный статус по video_id
-    checkAndRefreshVideoStatus().then((readyInfo) => {
-      if (!readyInfo?.isReady) {
-        alert(readyInfo?.message || 'Видео еще не готово. Попробуйте позже.');
-        return;
-      }
+    const readyInfo = await checkAndRefreshVideoStatus();
+    if (!readyInfo?.isReady) {
+      alert(readyInfo?.message || 'Видео еще не готово. Попробуйте позже.');
+      return;
+    }
 
-      const watchUrl = readyInfo.downloadUrl;
-      if (!watchUrl || watchUrl.trim() === '') {
-        console.warn('video_download_url не найден или пуст для просмотра', videoInfo);
-        alert('Ссылка на видео не найдена');
-        return;
-      }
+    const watchUrl = readyInfo.downloadUrl;
+    if (!watchUrl || watchUrl.trim() === '') {
+      console.warn('video_download_url не найден или пуст для просмотра', videoInfo);
+      alert('Ссылка на видео не найдена');
+      return;
+    }
 
+    try {
       try {
-        try {
-          new URL(watchUrl);
-        } catch (e) {
-          console.error('Некорректный URL:', watchUrl);
-          alert('Некорректная ссылка на видео');
-          return;
-        }
-
-        console.log('Открытие видео по URL:', watchUrl);
-        const newWindow = window.open(watchUrl, '_blank');
-        if (!newWindow) {
-          alert('Не удалось открыть видео. Возможно, браузер блокирует всплывающие окна.');
-        }
-      } catch (error) {
-        console.error('Ошибка открытия видео:', error);
-        alert(`Ошибка открытия видео: ${error.message || 'Неизвестная ошибка'}`);
+        new URL(watchUrl);
+      } catch (e) {
+        console.error('Некорректный URL:', watchUrl);
+        alert('Некорректная ссылка на видео');
+        return;
       }
-    });
+
+      console.log('Открытие видео по URL:', watchUrl);
+      const newWindow = window.open(watchUrl, '_blank');
+      if (!newWindow) {
+        alert('Не удалось открыть видео. Возможно, браузер блокирует всплывающие окна.');
+      }
+    } catch (error) {
+      console.error('Ошибка открытия видео:', error);
+      alert(`Ошибка открытия видео: ${error.message || 'Неизвестная ошибка'}`);
+    }
   };
   
   const handleRegenerateVideo = () => {
@@ -309,11 +329,18 @@ const LessonItem = ({
               <>
                 <Button 
                   size="small" 
-                  type="primary"
                   icon={<PlayCircleOutlined />}
-                  onClick={(e) => {
+                  loading={openingVideo}
+                  onClick={async (e) => {
                     console.log('Кнопка "Смотреть" нажата', { videoInfo, event: e });
-                    handleWatchVideo();
+                    setOpeningVideo(true);
+                    try { message.loading({ content: 'Открываем видео...', key: 'open-video-inline', duration: 0 }); } catch (_) {}
+                    try {
+                      await handleWatchVideo();
+                    } finally {
+                      setOpeningVideo(false);
+                      try { message.destroy('open-video-inline'); } catch (_) {}
+                    }
                   }}
                   title={`Смотреть видео (${videoInfo.video_download_url})`}
                 />
@@ -324,13 +351,15 @@ const LessonItem = ({
             size="small" 
             icon={<BookOutlined />}
             onClick={onViewContent}
-            title="Просмотр детального контента"
+            disabled={!hasDetailContent}
+            title={hasDetailContent ? "Просмотр детального контента" : "Недоступно: контент не сгенерирован"}
           />
-          <Dropdown menu={{ items: exportMenuItems }}>
+          <Dropdown menu={{ items: exportMenuItems }} disabled={!hasDetailContent}>
             <Button 
               size="small" 
               icon={<DownloadOutlined />}
-              title="Экспортировать контент урока"
+              disabled={!hasDetailContent}
+              title={hasDetailContent ? "Экспортировать контент урока" : "Экспорт недоступен: сначала сгенерируйте детальный контент"}
             />
           </Dropdown>
           <Button 
@@ -339,6 +368,27 @@ const LessonItem = ({
             onClick={onEdit}
             title="Редактировать урок"
           />
+          <Dropdown
+            trigger={["hover"]}
+            menu={{
+              items: [
+                {
+                  key: 'duplicate',
+                  label: 'Дублировать урок',
+                  onClick: () => onDuplicate && onDuplicate(index, lesson)
+                },
+                { type: 'divider' },
+                {
+                  key: 'delete',
+                  label: 'Удалить урок',
+                  danger: true,
+                  onClick: () => onDelete && onDelete(index, lesson)
+                }
+              ]
+            }}
+          >
+            <Button size="small" icon={<MoreOutlined />} title="Дополнительно" />
+          </Dropdown>
         </Space>
       </div>
       

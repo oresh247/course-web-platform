@@ -84,6 +84,24 @@ export const coursesApi = {
     return response.data
   },
 
+  // Дублировать модуль (серверная копия с детальным контентом)
+  duplicateModule: async (courseId, moduleNumber, payload, options = {}) => {
+    const response = await api.post(
+      `/api/courses/${courseId}/modules/${moduleNumber}/duplicate`,
+      payload,
+      { signal: options.signal }
+    )
+    return response.data
+  },
+
+  // Удалить модуль
+  deleteModule: async (courseId, moduleNumber) => {
+    const response = await api.delete(
+      `/api/courses/${courseId}/modules/${moduleNumber}`
+    )
+    return response.data
+  },
+
   // Регенерировать план контента урока с помощью AI
   regenerateLessonContent: async (courseId, moduleNumber, lessonIndex) => {
     const response = await api.post(
@@ -96,6 +114,23 @@ export const coursesApi = {
   generateLessonDetailedContent: async (courseId, moduleNumber, lessonIndex) => {
     const response = await api.post(
       `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/generate`
+    )
+    return response.data
+  },
+
+  // Дублировать урок
+  duplicateLesson: async (courseId, moduleNumber, lessonIndex, payload) => {
+    const response = await api.post(
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/duplicate`,
+      payload
+    )
+    return response.data
+  },
+
+  // Удалить урок
+  deleteLesson: async (courseId, moduleNumber, lessonIndex) => {
+    const response = await api.delete(
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}`
     )
     return response.data
   },

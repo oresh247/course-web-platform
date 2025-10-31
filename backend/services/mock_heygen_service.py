@@ -5,6 +5,7 @@
 import os
 import logging
 from typing import Dict, Any, Optional, List
+from .heygen.interfaces import HeygenClient  # тип-порт для совместимости
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

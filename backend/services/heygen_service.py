@@ -11,6 +11,13 @@ from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import logging
 import ssl
+from backend.clients.heygen_client import HeygenHttpClient
+from backend.services.heygen.interfaces import HeygenClient  # порт
+from backend.services.heygen.transforms import (
+    build_create_video_payload,
+    normalize_create_video_response,
+)
+from backend.services.heygen.normalizers import normalize_status_response
 
 load_dotenv()
 
@@ -28,18 +35,13 @@ class HeyGenService:
     """Сервис для работы с HeyGen API"""
     
     def __init__(self):
-        self.api_key = os.getenv('HEYGEN_API_KEY')
-        self.base_url = os.getenv('HEYGEN_API_URL', 'https://api.heygen.com')
-        
+        from backend.config import settings
+        self.api_key = settings.HEYGEN_API_KEY
+        self.base_url = settings.HEYGEN_API_URL
         if not self.api_key:
             raise ValueError("HEYGEN_API_KEY не найден в переменных окружения")
-        
-        self.headers = {
-            'X-Api-Key': self.api_key,  # Правильный заголовок
-            'Content-Type': 'application/json'
-        }
-        
-        logger.info("HeyGen сервис инициализирован")
+        self.client = HeygenHttpClient(api_key=self.api_key, base_url=self.base_url)
+        logger.info("HeyGen сервис инициализирован (через HeygenHttpClient)")
     
     def create_video_from_text(self, 
                              text: str, 
@@ -62,47 +64,20 @@ class HeyGenService:
         Returns:
             Dict с информацией о созданном видео
         """
-        payload = {
-            "video_inputs": [
-                {
-                    "character": {
-                        "type": "avatar",
-                        "avatar_id": avatar_id,
-                        "avatar_style": "normal"
-                    },
-                    "voice": {
-                        "type": "text",
-                        "input_text": text,
-                        "voice_id": voice_id,
-                        "language": language
-                    },
-                    "background": {
-                        "type": "color",
-                        "value": "#ffffff"
-                    } if not background_id else {
-                        "type": "image",
-                        "value": background_id
-                    }
-                }
-            ],
-            "dimension": {
-                "width": 1920 if quality == "high" else 1280,
-                "height": 1080 if quality == "high" else 720
-            },
-            "aspect_ratio": "16:9",
-            "quality": quality,
-            "test": test_mode
-        }
+        payload = build_create_video_payload(
+            text=text,
+            avatar_id=avatar_id,
+            voice_id=voice_id,
+            language=language,
+            background_id=background_id,
+            quality=quality,
+            test_mode=test_mode,
+        )
         
         try:
             logger.info(f"Создание видео с аватаром {avatar_id} и голосом {voice_id}")
-            response = requests.post(
-                f"{self.base_url}/v2/video/generate",
-                headers=self.headers,
-                json=payload,
-                timeout=30,
-                verify=False
-            )
+            from backend.config import settings
+            response = self.client.post("/v2/video/generate", json_payload=payload, timeout=settings.HEYGEN_TIMEOUT)
             
             # Логируем статус ответа для диагностики
             logger.info(f"HTTP статус ответа HeyGen: {response.status_code}")
@@ -126,32 +101,9 @@ class HeyGenService:
             # Логируем полный ответ HeyGen для диагностики
             logger.info(f"Полный ответ HeyGen API: {result}")
             
-            # Проверяем структуру ответа HeyGen
-            video_id = None
-            if result.get('data') and result['data'].get('video_id'):
-                # Новая структура: {"data": {"video_id": "..."}}
-                video_id = result['data']['video_id']
-            elif result.get('video_id'):
-                # Старая структура: {"video_id": "..."}
-                video_id = result['video_id']
-            
-            # Проверяем реальный статус в ответе HeyGen
-            if video_id is None:
-                error_message = result.get('message', 'Неизвестная ошибка генерации')
-                error_code = result.get('code', 'unknown')
-                logger.error(f"HeyGen вернул ошибку при создании видео: {error_message} (код: {error_code})")
-                logger.error(f"Полный ответ с ошибкой: {result}")
-                raise Exception(f"HeyGen generation failed: {error_message} (code: {error_code})")
-            
-            logger.info(f"Видео создано успешно: {video_id}")
-            
-            # Возвращаем результат в стандартном формате
-            return {
-                'video_id': video_id,
-                'script': result.get('data', {}).get('script', ''),
-                'created_at': result.get('data', {}).get('created_at', ''),
-                'status': result.get('data', {}).get('status', 'generating')
-            }
+            normalized = normalize_create_video_response(result)
+            logger.info(f"Видео создано успешно: {normalized['video_id']}")
+            return normalized
             
         except requests.exceptions.HTTPError as e:
             # Обрабатываем HTTP ошибки (400, 500 и т.д.)
@@ -173,12 +125,8 @@ class HeyGenService:
             Dict с информацией о статусе видео, включая детали ошибок
         """
         try:
-            response = requests.get(
-                f"{self.base_url}/v1/video_status.get?video_id={video_id}",
-                headers=self.headers,
-                timeout=10,
-                verify=False
-            )
+            from backend.config import settings
+            response = self.client.get(f"/v1/video_status.get?video_id={video_id}", timeout=settings.HEYGEN_STATUS_TIMEOUT)
             
             # Проверяем статус ответа
             if response.status_code == 404:
@@ -204,132 +152,21 @@ class HeyGenService:
             # Логируем полный ответ для диагностики
             logger.debug(f"Ответ HeyGen API для видео {video_id}: {result}")
             
-            # Обрабатываем разные варианты структуры ответа HeyGen
-            status = None
-            progress = 0
-            download_url = None
-            error_details = None
-            
-            # Проверяем различные варианты структуры ответа
-            if isinstance(result, dict):
-                # Вариант 1: {"status": "...", "data": {...}}
-                if "status" in result:
-                    status = result.get("status")
-                    data = result.get("data", {})
-                    if isinstance(data, dict):
-                        progress = data.get("progress", 0)
-                        # HeyGen API возвращает URL в поле video_url при статусе completed
-                        download_url = data.get("video_url") or data.get("videoUrl") or data.get("download_url") or data.get("downloadUrl")
-                        if "error" in data:
-                            error_details = data.get("error", {})
-                # Вариант 2: {"data": {"status": "...", "progress": ...}}
-                elif "data" in result:
-                    data = result.get("data", {})
-                    if isinstance(data, dict):
-                        status = data.get("status")
-                        progress = data.get("progress", 0)
-                        # HeyGen API возвращает URL в поле video_url при статусе completed
-                        download_url = data.get("video_url") or data.get("videoUrl") or data.get("download_url") or data.get("downloadUrl")
-                        if "error" in data:
-                            error_details = data.get("error", {})
-                else:
-                    # Прямая структура без вложенности
-                    status = result.get("status")
-                    progress = result.get("progress", 0)
-                    # HeyGen API возвращает URL в поле video_url при статусе completed
-                    download_url = result.get("video_url") or result.get("videoUrl") or result.get("download_url") or result.get("downloadUrl")
-                    if "error" in result:
-                        error_details = result.get("error", {})
-            
-            # Если статус не определен, но есть video_id, считаем что видео генерируется
-            if not status and video_id:
-                status = "generating"
-                logger.info(f"Статус не определен для видео {video_id}, устанавливаем 'generating'")
-            
-            # Обрабатываем ошибки
-            if status == "failed" or error_details:
-                error_msg = "Неизвестная ошибка генерации"
-                error_code = "unknown"
-                if isinstance(error_details, dict):
-                    error_msg = error_details.get("message", error_msg)
-                    error_code = error_details.get("code", error_code)
-                elif isinstance(error_details, str):
-                    error_msg = error_details
-                
-                logger.error(f"HeyGen ошибка для видео {video_id}: {error_msg} (код: {error_code})")
-                return {
-                    "status": "failed",
-                    "error": error_msg,
-                    "error_code": error_code,
-                    "error_details": error_details,
-                    "video_id": video_id
-                }
-            
-            # Обрабатываем статус generating
-            if status == "generating":
+            normalized = normalize_status_response(result, video_id)
+            if normalized.get("status") == "generating":
+                progress = normalized.get("progress", 0)
                 logger.info(f"Видео {video_id} генерируется, прогресс: {progress}%")
-                return {
-                    "status": "generating",
-                    "progress": progress,
-                    "video_id": video_id,
-                    "estimated_time": result.get("estimated_time") or result.get("data", {}).get("estimated_time")
-                }
-            
-            # Обрабатываем статус completed
-            if status == "completed":
-                # Сначала пытаемся получить download_url из ответа API
-                if not download_url:
-                    # Получаем data объект для глубокого поиска
-                    data_obj = result.get("data", {})
-                    if not isinstance(data_obj, dict):
-                        data_obj = result if isinstance(result, dict) else {}
-                    
-                    # Проверяем все возможные варианты названий полей (video_url - приоритетный для HeyGen)
-                    download_url = (
-                        data_obj.get("video_url") or      # Приоритетный вариант по документации HeyGen
-                        data_obj.get("videoUrl") or 
-                        data_obj.get("download_url") or 
-                        data_obj.get("downloadUrl") or
-                        data_obj.get("url") or
-                        data_obj.get("video_file_url") or
-                        data_obj.get("video_file") or
-                        result.get("video_url") or
-                        result.get("videoUrl") or
-                        result.get("download_url") or 
-                        result.get("downloadUrl") or
-                        result.get("url")
-                    )
-                
-                # Если URL не найден в API, генерируем его на основе video_id
-                # Для просмотра: https://app.heygen.com/videos/{video_id}
-                # Для скачивания: https://resource2.heygen.ai/video/transcode/{video_id}/1280x720.mp4
-                if not download_url and video_id:
-                    # Используем URL для скачивания (можно использовать для просмотра и скачивания)
-                    download_url = f"https://resource2.heygen.ai/video/transcode/{video_id}/1280x720.mp4"
-                    logger.info(f"✅ URL для скачивания сгенерирован для видео {video_id}: {download_url}")
-                elif download_url:
-                    logger.info(f"✅ Видео {video_id} готово, download_url найден: {download_url}")
-                else:
-                    logger.warning(f"⚠️ Не удалось получить или сгенерировать URL для видео {video_id}")
-                
-                return {
-                    "status": "completed",
-                    "progress": 100,
-                    "video_id": video_id,
-                    "download_url": download_url,  # URL для просмотра/скачивания
-                    "duration": result.get("duration") or (result.get("data", {}) if isinstance(result.get("data"), dict) else {}).get("duration"),
-                    "file_size": result.get("file_size") or (result.get("data", {}) if isinstance(result.get("data"), dict) else {}).get("file_size")
-                }
-            
-            # Если статус неизвестен, возвращаем то что получили
-            logger.warning(f"Неизвестный статус для видео {video_id}: {status}, возвращаем полный ответ")
-            return {
-                "status": status or "unknown",
-                "progress": progress,
-                "video_id": video_id,
-                "download_url": download_url,
-                "raw_response": result  # Добавляем полный ответ для отладки
-            }
+            elif normalized.get("status") == "completed":
+                logger.info(f"✅ Видео {video_id} готово")
+            elif normalized.get("status") == "failed":
+                logger.error(
+                    f"HeyGen ошибка для видео {video_id}: {normalized.get('error')} (код: {normalized.get('error_code')})"
+                )
+            else:
+                logger.warning(
+                    f"Неизвестный статус для видео {video_id}: {normalized.get('status')}"
+                )
+            return normalized
             
         except requests.exceptions.Timeout:
             logger.error(f"Таймаут при проверке статуса видео {video_id}")
@@ -373,13 +210,8 @@ class HeyGenService:
         """
         try:
             logger.info(f"Скачивание видео {video_id} в {output_path}")
-            response = requests.get(
-                f"{self.base_url}/v1/video/{video_id}/download",
-                headers=self.headers,
-                stream=True,
-                timeout=60,
-                verify=False
-            )
+            from backend.config import settings
+            response = self.client.stream(f"/v1/video/{video_id}/download", timeout=settings.HEYGEN_DOWNLOAD_TIMEOUT)
             response.raise_for_status()
             
             # Создаем директорию если не существует
@@ -404,12 +236,8 @@ class HeyGenService:
         """
         try:
             logger.info("Запрос списка аватаров HeyGen...")
-            response = requests.get(
-                f"{self.base_url}/v2/avatars",
-                headers=self.headers,
-                timeout=10,
-                verify=False
-            )
+            from backend.config import settings
+            response = self.client.get("/v2/avatars", timeout=settings.HEYGEN_STATUS_TIMEOUT)
             
             logger.info(f"Ответ HeyGen API: статус {response.status_code}")
             
@@ -437,12 +265,8 @@ class HeyGenService:
             Dict с информацией о голосах
         """
         try:
-            response = requests.get(
-                f"{self.base_url}/v1/voice.list",
-                headers=self.headers,
-                timeout=10,
-                verify=False
-            )
+            from backend.config import settings
+            response = self.client.get("/v1/voice.list", timeout=settings.HEYGEN_STATUS_TIMEOUT)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:

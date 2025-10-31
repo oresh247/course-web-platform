@@ -133,6 +133,7 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
   // Для оценочного прогресса
   const [generationStartTs, setGenerationStartTs] = useState(null);
   const [expectedDurationSec, setExpectedDurationSec] = useState(null);
+  const [isOpeningVideo, setIsOpeningVideo] = useState(false);
 
   // Загружаем аватары, голоса и детальный контент урока при открытии модального окна
   useEffect(() => {
@@ -354,6 +355,17 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         }
       }
       
+      // Фоллбек: если бэкенд уже нормализует в avatars (массив или объект)
+      if (!avatarsArray && data.avatars) {
+        if (Array.isArray(data.avatars)) {
+          avatarsArray = data.avatars;
+        } else if (typeof data.avatars === 'object') {
+          // ищем первый массив в значениях объекта
+          const firstArray = Object.values(data.avatars).find(v => Array.isArray(v));
+          if (Array.isArray(firstArray)) avatarsArray = firstArray;
+        }
+      }
+
       if (avatarsArray && avatarsArray.length > 0) {
         setAvatars(avatarsArray);
         if (!selectedAvatar) {
@@ -393,6 +405,16 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         }
       }
       
+      // Фоллбек: если бэкенд уже нормализует в voices (массив или объект)
+      if (!voicesArray && data.voices) {
+        if (Array.isArray(data.voices)) {
+          voicesArray = data.voices;
+        } else if (typeof data.voices === 'object') {
+          const firstArray = Object.values(data.voices).find(v => Array.isArray(v));
+          if (Array.isArray(firstArray)) voicesArray = firstArray;
+        }
+      }
+
       if (voicesArray && voicesArray.length > 0) {
         setVoices(voicesArray);
         if (!selectedVoice) {
@@ -755,7 +777,6 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       case 'unknown_error':
       case 'unknown':
         return 'exception';
-      case 'pending': return 'warning';
       default: return 'normal';
     }
   };
@@ -1014,7 +1035,20 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
                     <Button 
                       type="primary" 
                       icon={<PlayCircleOutlined />}
-                      onClick={() => window.open(videoStatus.download_url, '_blank')}
+                      loading={isOpeningVideo}
+                      onClick={async () => {
+                        try {
+                          setIsOpeningVideo(true);
+                          message.loading({ content: 'Открываем видео...', key: 'open-video', duration: 0 });
+                          await new Promise(r => setTimeout(r, 300));
+                          window.open(videoStatus.download_url, '_blank');
+                          message.success({ content: 'Видео открыто', key: 'open-video', duration: 1.5 });
+                        } catch (e) {
+                          message.error({ content: 'Не удалось открыть видео', key: 'open-video' });
+                        } finally {
+                          setIsOpeningVideo(false);
+                        }
+                      }}
                       block
                     >
                       Смотреть видео

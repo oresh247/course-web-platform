@@ -109,9 +109,28 @@ Frontend будет доступен на: http://localhost:3000
 # OpenAI API
 OPENAI_API_KEY=sk-your-key-here
 
+# OpenAI defaults (опционально)
+OPENAI_MODEL_DEFAULT=gpt-4
+OPENAI_TIMEOUT=120
+OPENAI_TEMPERATURE_DEFAULT=0.7
+OPENAI_MAX_TOKENS_DEFAULT=3000
+OPENAI_RETRIES_DEFAULT=2
+OPENAI_BACKOFF_SECONDS_DEFAULT=1.0
+
 # Прокси (опционально, для корпоративных сетей)
 HTTP_PROXY=http://your-proxy:port
 HTTPS_PROXY=http://your-proxy:port
+
+# HeyGen (опционально, для генерации видео)
+# Если HEYGEN_API_KEY не задан, включится мок-режим без внешних запросов
+HEYGEN_API_KEY=
+HEYGEN_API_URL=https://api.heygen.com
+HEYGEN_DEFAULT_AVATAR_ID=Abigail_expressive_2024112501
+HEYGEN_DEFAULT_VOICE_ID=9799f1ba6acd4b2b993fe813a18f9a91
+HEYGEN_TIMEOUT=30
+HEYGEN_STATUS_TIMEOUT=10
+HEYGEN_DOWNLOAD_TIMEOUT=60
+HEYGEN_POLL_INTERVAL_SECONDS=10
 
 # База данных
 DATABASE_PATH=courses.db
@@ -121,6 +140,24 @@ HOST=0.0.0.0
 PORT=8000
 DEBUG=True
 ```
+
+#### Переменные окружения — краткое описание
+
+- OPENAI_API_KEY: ключ для доступа к OpenAI API
+- OPENAI_MODEL_DEFAULT: модель по умолчанию (например, gpt-4)
+- OPENAI_TIMEOUT: таймаут HTTP-клиента (сек)
+- OPENAI_TEMPERATURE_DEFAULT: температура генерации
+- OPENAI_MAX_TOKENS_DEFAULT: лимит токенов на ответ
+- OPENAI_RETRIES_DEFAULT: число ретраев при ошибках
+- OPENAI_BACKOFF_SECONDS_DEFAULT: базовая задержка между ретраями (экспоненциальная)
+- HTTP_PROXY/HTTPS_PROXY: настройки прокси (если требуется)
+- HEYGEN_API_KEY: ключ HeyGen; если пустой — включается мок-режим (без внешнего API)
+- HEYGEN_API_URL: базовый URL HeyGen API
+- HEYGEN_DEFAULT_AVATAR_ID / HEYGEN_DEFAULT_VOICE_ID: дефолтные аватар и голос
+- HEYGEN_TIMEOUT / HEYGEN_STATUS_TIMEOUT / HEYGEN_DOWNLOAD_TIMEOUT: таймауты (сек)
+- HEYGEN_POLL_INTERVAL_SECONDS: интервал опроса статуса видео (сек)
+- DATABASE_PATH: путь к SQLite файлу
+- HOST/PORT/DEBUG: параметры запуска бэкенда
 
 ### Работа через прокси
 

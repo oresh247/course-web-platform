@@ -345,6 +345,23 @@ class CourseDatabase:
                 return content_data
             
             return None
+
+    def delete_module_content(self, course_id: int, module_number: int) -> int:
+        """Удалить запись детального контента модуля.
+
+        Returns количество удалённых строк.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM module_contents
+                WHERE course_id = ? AND module_number = ?
+                """,
+                (course_id, module_number),
+            )
+            conn.commit()
+            return cursor.rowcount
     
     def update_lesson_video_info(
         self,
@@ -525,6 +542,37 @@ class CourseDatabase:
                 return content_data
             
             return None
+
+    def delete_lesson_content(self, course_id: int, module_number: int, lesson_index: int) -> int:
+        """Удалить запись детального контента одного урока."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM lesson_contents
+                WHERE course_id = ? AND module_number = ? AND lesson_index = ?
+                """,
+                (course_id, module_number, lesson_index),
+            )
+            conn.commit()
+            return cursor.rowcount
+
+    def delete_lesson_contents_for_module(self, course_id: int, module_number: int) -> int:
+        """Удалить все записи детального контента уроков для указанного модуля.
+
+        Returns количество удалённых строк.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                DELETE FROM lesson_contents
+                WHERE course_id = ? AND module_number = ?
+                """,
+                (course_id, module_number),
+            )
+            conn.commit()
+            return cursor.rowcount
 
 
 # Глобальный экземпляр базы данных

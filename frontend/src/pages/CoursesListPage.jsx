@@ -10,7 +10,10 @@ import {
   Spin,
   App,
   Popconfirm,
-  Typography
+  Typography,
+  Input,
+  Select,
+  Table
 } from 'antd'
 import { 
   EyeOutlined, 
@@ -20,6 +23,7 @@ import {
   ClockCircleOutlined,
   UserOutlined
 } from '@ant-design/icons'
+import { SmileOutlined, TeamOutlined, CrownOutlined } from '@ant-design/icons'
 import { coursesApi } from '../api/coursesApi'
 
 const { Title, Paragraph, Text } = Typography
@@ -29,6 +33,9 @@ function CoursesListPage() {
   const navigate = useNavigate()
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [viewMode, setViewMode] = useState('cards') // 'cards' | 'table'
+  const [searchQuery, setSearchQuery] = useState('')
+  const [audienceFilter, setAudienceFilter] = useState('all')
 
   useEffect(() => {
     loadCourses()
@@ -66,6 +73,36 @@ function CoursesListPage() {
     )
   }
 
+  // Применяем фильтры к списку
+  const filteredCourses = courses.filter(c => {
+    const q = searchQuery.trim().toLowerCase()
+    const okSearch = !q || String(c.course_title || '').toLowerCase().includes(q)
+    const aud = String(c.target_audience || '').toLowerCase()
+    const okAudience = audienceFilter === 'all' || aud.includes(audienceFilter)
+    return okSearch && okAudience
+  })
+
+  // Колонки таблицы
+  const columns = [
+    { title: 'Название', dataIndex: 'course_title', key: 'title', render: (text, record) => (
+      <a onClick={() => navigate(`/courses/${record.id}`)}>{text}</a>
+    ) },
+    { title: 'Аудитория', dataIndex: 'target_audience', key: 'aud' },
+    { title: 'Недель', dataIndex: 'duration_weeks', key: 'weeks', width: 100 },
+    { title: 'Часов', dataIndex: 'duration_hours', key: 'hours', width: 100,
+      render: (v) => v ?? '-' },
+    { title: 'Создан', dataIndex: 'created_at', key: 'created', width: 140,
+      render: (v) => new Date(v).toLocaleDateString('ru-RU') },
+    { title: 'Действия', key: 'actions', width: 220, render: (_, record) => (
+      <Space>
+        <Button type="link" icon={<EyeOutlined />} onClick={() => navigate(`/courses/${record.id}`)} style={{ color: '#5E8A30', fontWeight: 500 }}>Открыть</Button>
+        <Popconfirm title="Удалить курс?" description="Это действие нельзя отменить" onConfirm={() => handleDelete(record.id)} okText="Да" cancelText="Нет">
+          <Button type="link" danger icon={<DeleteOutlined />} style={{ fontWeight: 500 }}>Удалить</Button>
+        </Popconfirm>
+      </Space>
+    )}
+  ]
+
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
       <div style={{ 
@@ -82,22 +119,45 @@ function CoursesListPage() {
         <Title level={2} style={{ color: 'white', margin: 0 }}>
           <BookOutlined /> Мои курсы
         </Title>
-        <Button 
-          size="large"
-          icon={<PlusOutlined />}
-          onClick={() => navigate('/create')}
-          style={{
-            background: 'white',
-            color: '#5E8A30',
-            border: 'none',
-            fontWeight: 600
-          }}
-        >
-          Создать курс
-        </Button>
+        <Space>
+          <Input.Search
+            allowClear
+            placeholder="Поиск по названию"
+            onSearch={setSearchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ width: 260 }}
+          />
+          <Select
+            value={audienceFilter}
+            onChange={setAudienceFilter}
+            style={{ width: 180 }}
+            options={[
+              { value: 'all', label: 'Все уровни' },
+              { value: 'junior', label: 'Junior' },
+              { value: 'middle', label: 'Middle' },
+              { value: 'senior', label: 'Senior' }
+            ]}
+          />
+          <Button onClick={() => setViewMode(viewMode === 'cards' ? 'table' : 'cards')}>
+            {viewMode === 'cards' ? 'Таблица' : 'Карточки'}
+          </Button>
+          <Button 
+            size="large"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/create')}
+            style={{
+              background: 'white',
+              color: '#5E8A30',
+              border: 'none',
+              fontWeight: 600
+            }}
+          >
+            Создать курс
+          </Button>
+        </Space>
       </div>
 
-      {courses.length === 0 ? (
+      {filteredCourses.length === 0 ? (
         <Card style={{
           borderRadius: '12px',
           background: '#141414',
@@ -122,7 +182,7 @@ function CoursesListPage() {
             </Button>
           </Empty>
         </Card>
-      ) : (
+      ) : viewMode === 'cards' ? (
         <List
           grid={{ 
             gutter: 24, 
@@ -133,7 +193,7 @@ function CoursesListPage() {
             xl: 3, 
             xxl: 3 
           }}
-          dataSource={courses}
+          dataSource={filteredCourses}
           renderItem={(course) => (
             <List.Item>
               <Card
@@ -188,7 +248,20 @@ function CoursesListPage() {
                       color: '#ffffff',
                       lineHeight: 1.4
                     }}>
-                      {course.course_title}
+                      {(() => {
+                        const lvl = String(course.target_audience || '').toLowerCase()
+                        const color = '#5E8A30'
+                        const size = 18
+                        let icon = <SmileOutlined style={{ color, fontSize: size, marginRight: 8 }} />
+                        if (lvl.includes('middle')) icon = <TeamOutlined style={{ color, fontSize: size, marginRight: 8 }} />
+                        if (lvl.includes('senior')) icon = <CrownOutlined style={{ color, fontSize: size, marginRight: 8 }} />
+                        return (
+                          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                            {icon}
+                            {course.course_title}
+                          </span>
+                        )
+                      })()}
                     </div>
                   }
                   description={
@@ -216,6 +289,15 @@ function CoursesListPage() {
             </List.Item>
           )}
         />
+      ) : (
+        <Card style={{ borderRadius: '12px', background: '#141414', border: '1px solid #2a2a2a' }}>
+          <Table
+            rowKey="id"
+            dataSource={filteredCourses}
+            columns={columns}
+            pagination={{ pageSize: 9 }}
+          />
+        </Card>
       )}
     </div>
   )

@@ -1,22 +1,28 @@
 """
 Генератор учебного контента для модулей курса
-Адаптировано из TGBotCreateCourse проекта
 """
 import logging
 import json
 from typing import Optional, Dict, Any, List
 
 from backend.models.domain import (
-    Module, Lecture, Slide, ModuleContent, 
-    Lesson, LessonContent, TopicMaterial
+    Module, Lecture, Slide, ModuleContent,
+    Lesson, LessonContent, TopicMaterial, GeneratedLecture
 )
+from backend.config import settings
+from backend.ai.cache import make_cache_key, get as cache_get, set as cache_set
 from backend.ai.openai_client import OpenAIClient
+from backend.ai.interfaces import AIChatClient
+from backend.ai.json_sanitizer import extract_json
 from backend.ai.prompts import (
     MODULE_CONTENT_SYSTEM_PROMPT,
     MODULE_CONTENT_PROMPT_TEMPLATE,
     TOPIC_MATERIAL_SYSTEM_PROMPT,
     TOPIC_MATERIAL_PROMPT_TEMPLATE,
-    format_lessons_list
+    format_lessons_list,
+    format_content_outline,
+    LESSON_DETAILED_SYSTEM_PROMPT,
+    LESSON_DETAILED_PROMPT_TEMPLATE
 )
 
 logger = logging.getLogger(__name__)
@@ -25,8 +31,8 @@ logger = logging.getLogger(__name__)
 class ContentGenerator:
     """Класс для генерации учебного контента модулей"""
     
-    def __init__(self):
-        self.openai_client = OpenAIClient()
+    def __init__(self, ai_client: AIChatClient | None = None):
+        self.openai_client: AIChatClient = ai_client or OpenAIClient()
     
     def generate_lesson_detailed_content(
         self,
@@ -50,97 +56,55 @@ class ContentGenerator:
         logger.info(f"Генерируем детальный контент для урока: {lesson.lesson_title}")
         
         try:
-            prompt = f"""Создай ДЕТАЛЬНУЮ лекцию со слайдами для одного урока IT-курса.
-
-КОНТЕКСТ:
-- Курс: {course_title}
-- Аудитория: {target_audience}
-- Модуль: {module.module_title}
-- Урок: {lesson.lesson_title}
-- Цель урока: {lesson.lesson_goal}
-- Формат: {lesson.format}
-- Время: {lesson.estimated_time_minutes} минут
-
-ПЛАН КОНТЕНТА УРОКА:
-{chr(10).join('- ' + item for item in lesson.content_outline)}
-
-ЗАДАЧА:
-Создай одну ЛЕКЦИЮ с 6-10 СЛАЙДАМИ, покрывающими все пункты плана контента.
-
-ТРЕБОВАНИЯ:
-- Каждый слайд должен содержать ПОЛНЫЙ учебный материал (2-3 абзаца объяснений)
-- Для технических тем обязательно добавляй примеры кода в code_example
-- Добавь learning_objectives (3-4 цели) и key_takeaways (3-4 вывода)
-
-ФОРМАТ JSON:
-{{
-  "lecture_title": "{lesson.lesson_title}",
-  "duration_minutes": {lesson.estimated_time_minutes},
-  "learning_objectives": ["цель 1", "цель 2", "цель 3"],
-  "key_takeaways": ["вывод 1", "вывод 2", "вывод 3"],
-  "slides": [
-    {{
-      "slide_number": 1,
-      "title": "Заголовок слайда",
-      "content": "ПОЛНЫЙ детальный учебный материал с объяснениями...",
-      "slide_type": "content",
-      "code_example": null,
-      "notes": "Краткие методические указания"
-    }}
-  ]
-}}
-
-Верни ТОЛЬКО JSON!"""
-            
-            response = self.openai_client.client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": "Ты эксперт по созданию детального образовательного контента. Создаешь полноценные учебные материалы. ВЫВОДИ ТОЛЬКО JSON!"},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.3,
-                max_tokens=4000  # Максимум для gpt-4-turbo-preview
+            prompt = LESSON_DETAILED_PROMPT_TEMPLATE.format(
+                course_title=course_title,
+                target_audience=target_audience,
+                module_title=module.module_title,
+                lesson_title=lesson.lesson_title,
+                lesson_goal=lesson.lesson_goal,
+                lesson_format=lesson.format,
+                lesson_time=lesson.estimated_time_minutes,
+                content_outline=format_content_outline(lesson.content_outline),
             )
-            
-            content = response.choices[0].message.content.strip()
-            
-            # Проверяем, не был ли ответ обрезан
-            finish_reason = response.choices[0].finish_reason
-            if finish_reason == "length":
-                logger.warning(f"⚠️ Ответ урока был обрезан из-за лимита токенов!")
-            
-            logger.debug(f"Ответ урока (длина: {len(content)}, finish_reason: {finish_reason})")
-            
-            # Для урока парсим JSON напрямую (не используем _extract_json для модулей)
+
+            # Кэш-ключ по содержанию запроса
+            cache_key = make_cache_key(
+                "lesson_detailed",
+                settings.PROMPT_VERSION,
+                LESSON_DETAILED_SYSTEM_PROMPT,
+                prompt,
+                "gpt-4-turbo-preview",
+                str(0.3),
+            )
+            if settings.AI_CACHE_ENABLED:
+                cached = cache_get(cache_key)
+                if cached is not None:
+                    logger.info("cache hit: lesson_detailed")
+                    return cached
+
+            content_json = self.openai_client.call_ai_json(
+                system_prompt=LESSON_DETAILED_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                model="gpt-4-turbo-preview",
+                temperature=0.3,
+                max_tokens=4000,
+            )
+            if not content_json:
+                logger.warning("❌ JSON mode вернул пустой результат для урока")
+                return None
+            # Валидация pydantic
             try:
-                # Удаляем markdown блоки если есть
-                content = content.replace('```json', '').replace('```', '').strip()
-                
-                # Ищем JSON блок
-                start_idx = content.find('{')
-                end_idx = content.rfind('}') + 1
-                
-                if start_idx != -1 and end_idx > start_idx:
-                    json_str = content[start_idx:end_idx]
-                    lesson_content = json.loads(json_str)
-                    
-                    if 'slides' in lesson_content and isinstance(lesson_content['slides'], list):
-                        logger.info(f"✅ Контент урока сгенерирован: {len(lesson_content['slides'])} слайдов")
-                        return lesson_content
-                    else:
-                        logger.warning(f"❌ Неправильная структура урока. Ключи: {list(lesson_content.keys())}")
-                        return None
-                else:
-                    logger.warning("❌ JSON блок не найден в ответе для урока")
-                    return None
-                    
-            except json.JSONDecodeError as e:
-                logger.error(f"❌ Ошибка парсинга JSON урока: {e}")
-                return None
+                _ = GeneratedLecture(**content_json)
             except Exception as e:
-                logger.error(f"❌ Неожиданная ошибка при парсинге урока: {e}")
+                logger.warning(f"❌ Невалидная структура лекции: {e}")
                 return None
+            if 'slides' in content_json and isinstance(content_json['slides'], list):
+                logger.info(f"✅ Контент урока сгенерирован: {len(content_json['slides'])} слайдов")
+                if settings.AI_CACHE_ENABLED:
+                    cache_set(cache_key, content_json, settings.AI_CACHE_TTL_SECONDS)
+                return content_json
+            logger.warning(f"❌ Неправильная структура урока. Ключи: {list(content_json.keys())}")
+            return None
                 
         except Exception as e:
             logger.error(f"Ошибка генерации контента урока: {e}")
@@ -199,29 +163,31 @@ class ContentGenerator:
                 num_lessons=len(module.lessons)
             )
             
-            response = self.openai_client.client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": MODULE_CONTENT_SYSTEM_PROMPT + "\n\nВЫВОД ТОЛЬКО В JSON ФОРМАТЕ!"},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.3,
-                max_tokens=4096  # Максимум для gpt-4-turbo-preview
+            # Кэш-ключ по содержанию запроса
+            cache_key = make_cache_key(
+                "module_json_mode",
+                settings.PROMPT_VERSION,
+                MODULE_CONTENT_SYSTEM_PROMPT + "|json",
+                prompt,
+                "gpt-4-turbo-preview",
+                str(0.3),
             )
-            
-            content = response.choices[0].message.content.strip()
-            
-            # Проверяем, не был ли ответ обрезан из-за лимита токенов
-            finish_reason = response.choices[0].finish_reason
-            if finish_reason == "length":
-                logger.warning(f"⚠️ Ответ был обрезан из-за лимита токенов! Увеличьте max_tokens.")
-            
-            # Логируем сырой ответ для отладки
-            logger.info(f"📝 Получен JSON ответ от AI (длина: {len(content)} символов, finish_reason: {finish_reason})")
-            logger.debug(f"Полный ответ: {content}")
-            
-            json_content = self._extract_json(content)
+            if settings.AI_CACHE_ENABLED:
+                cached = cache_get(cache_key)
+                if cached is not None:
+                    logger.info("cache hit: module_json_mode")
+                    try:
+                        return ModuleContent(**cached)
+                    except Exception:
+                        pass
+
+            json_content = self.openai_client.call_ai_json(
+                system_prompt=MODULE_CONTENT_SYSTEM_PROMPT + "\n\nВЫВОД ТОЛЬКО В JSON ФОРМАТЕ!",
+                user_prompt=prompt,
+                model="gpt-4-turbo-preview",
+                temperature=0.3,
+                max_tokens=4096,
+            )
             
             if json_content and "lectures" in json_content:
                 # Добавляем обязательные поля
@@ -237,6 +203,8 @@ class ContentGenerator:
                 
                 module_content = ModuleContent(**json_content)
                 logger.info(f"✅ JSON mode успешно: {len(module_content.lectures)} лекций, {total_slides} слайдов")
+                if settings.AI_CACHE_ENABLED:
+                    cache_set(cache_key, json_content, settings.AI_CACHE_TTL_SECONDS)
                 return module_content
             else:
                 logger.warning("❌ JSON mode вернул неправильную структуру")
@@ -266,26 +234,34 @@ class ContentGenerator:
                 num_lessons=len(module.lessons)
             )
             
-            response = self.openai_client.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": MODULE_CONTENT_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=4000  # Безопасный лимит для gpt-4
+            # Кэш-ключ по содержанию запроса
+            cache_key = make_cache_key(
+                "module_text_mode",
+                settings.PROMPT_VERSION,
+                MODULE_CONTENT_SYSTEM_PROMPT,
+                prompt,
+                "gpt-4",
+                str(0.3),
             )
-            
-            content = response.choices[0].message.content.strip()
-            
-            # Проверяем, не был ли ответ обрезан из-за лимита токенов
-            finish_reason = response.choices[0].finish_reason
-            if finish_reason == "length":
-                logger.warning(f"⚠️ Ответ был обрезан из-за лимита токенов! Увеличьте max_tokens.")
-            
-            logger.info(f"📝 Получен ответ от AI (длина: {len(content)} символов, finish_reason: {finish_reason})")
-            
-            json_content = self._extract_json(content)
+            if settings.AI_CACHE_ENABLED:
+                cached = cache_get(cache_key)
+                if cached is not None:
+                    logger.info("cache hit: module_text_mode")
+                    try:
+                        return ModuleContent(**cached)
+                    except Exception:
+                        pass
+
+            content = self.openai_client.call_ai(
+                system_prompt=MODULE_CONTENT_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                model="gpt-4",
+                temperature=0.3,
+                max_tokens=4000,
+            )
+            if not content:
+                return None
+            json_content = extract_json(content, expected_key="lectures")
             
             if json_content and "lectures" in json_content:
                 # Добавляем обязательные поля
@@ -301,6 +277,8 @@ class ContentGenerator:
                 
                 module_content = ModuleContent(**json_content)
                 logger.info(f"✅ Текстовый режим успешно: {len(module_content.lectures)} лекций, {total_slides} слайдов")
+                if settings.AI_CACHE_ENABLED:
+                    cache_set(cache_key, json_content, settings.AI_CACHE_TTL_SECONDS)
                 return module_content
             else:
                 logger.warning("❌ Текстовый режим вернул неправильную структуру")
@@ -311,81 +289,8 @@ class ContentGenerator:
             return None
     
     def _extract_json(self, content: str, expected_key: str = "lectures") -> Optional[Dict[str, Any]]:
-        """Извлекает JSON из ответа с автоматическим исправлением частых ошибок
-        
-        Args:
-            content: Текст ответа от AI
-            expected_key: Ожидаемый ключ в корне JSON (по умолчанию "lectures")
-        """
-        try:
-            # Удаляем markdown блоки если есть
-            content = content.replace('```json', '').replace('```', '').strip()
-            
-            # Ищем JSON блок
-            start_idx = content.find('{')
-            end_idx = content.rfind('}') + 1
-            
-            if start_idx == -1 or end_idx <= start_idx:
-                logger.error("JSON блок не найден в ответе")
-                return None
-            
-            json_str = content[start_idx:end_idx]
-            
-            # Проверяем, не обрезан ли JSON (неполный ответ из-за max_tokens)
-            is_truncated = not json_str.rstrip().endswith('}')
-            if is_truncated:
-                logger.warning("⚠️ JSON выглядит обрезанным (не заканчивается на })")
-                # Попытка закрыть JSON автоматически
-                json_str = self._attempt_close_json(json_str)
-            
-            # Попытка 1: Стандартный парсинг
-            try:
-                parsed = json.loads(json_str)
-                if expected_key and expected_key in parsed:
-                    logger.info(f"✅ Получена правильная структура с '{expected_key}'")
-                    return parsed
-                elif not expected_key:
-                    # Если ключ не указан, возвращаем любую валидную структуру
-                    logger.info(f"✅ Получен валидный JSON с ключами: {list(parsed.keys())}")
-                    return parsed
-                else:
-                    logger.warning(f"⚠️ Отсутствует ожидаемый ключ '{expected_key}'. Доступные ключи: {list(parsed.keys())}")
-                    # Возвращаем anyway - может быть полезно
-                    return parsed
-            except json.JSONDecodeError as e:
-                logger.warning(f"⚠️ Ошибка парсинга JSON: {e}")
-                logger.info(f"🔧 Пробуем исправить JSON автоматически...")
-                
-                # Попытка 2: Исправление частых ошибок
-                fixed_json = self._fix_json_errors(json_str, e)
-                
-                try:
-                    parsed = json.loads(fixed_json)
-                    if expected_key and expected_key in parsed:
-                        logger.info("✅ JSON исправлен и успешно распарсен!")
-                        return parsed
-                    elif not expected_key:
-                        logger.info(f"✅ JSON исправлен. Ключи: {list(parsed.keys())}")
-                        return parsed
-                    else:
-                        logger.warning(f"⚠️ JSON исправлен, но отсутствует ключ '{expected_key}'")
-                        return parsed
-                except json.JSONDecodeError as e2:
-                    logger.error(f"❌ Не удалось исправить JSON: {e2}")
-                    # Логируем проблемную часть JSON для анализа
-                    error_pos = e2.pos if hasattr(e2, 'pos') else e.pos
-                    context_start = max(0, error_pos - 100)
-                    context_end = min(len(json_str), error_pos + 100)
-                    logger.error(f"Проблемная часть JSON (позиция {error_pos}): ...{json_str[context_start:context_end]}...")
-                    
-                    # Сохраняем проблемный JSON в файл для анализа
-                    self._save_failed_json(json_str, fixed_json, e2)
-                    
-                    return None
-                
-        except Exception as e:
-            logger.error(f"Неожиданная ошибка при извлечении JSON: {e}")
-            return None
+        # Делегируем общему санитайзеру для переиспользования
+        return extract_json(content, expected_key=expected_key)
     
     def _save_failed_json(self, original_json: str, fixed_json: str, error: Exception):
         """Сохраняет проблемный JSON в файл для отладки"""
@@ -600,35 +505,26 @@ class ContentGenerator:
                 topic_title=topic_title
             )
             
-            # Пробуем JSON mode
-            try:
-                response = self.openai_client.client.chat.completions.create(
-                    model="gpt-4-turbo-preview",
-                    messages=[
-                        {"role": "system", "content": TOPIC_MATERIAL_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.7,
-                    max_tokens=4096  # Максимум для gpt-4-turbo-preview
-                )
-                logger.info("✅ Используем JSON mode для генерации темы")
-            except Exception as e:
-                logger.warning(f"JSON mode не сработал: {e}")
-                # Обычный режим
-                response = self.openai_client.client.chat.completions.create(
+            # Пробуем JSON mode с оберткой клиента
+            json_content = self.openai_client.call_ai_json(
+                system_prompt=TOPIC_MATERIAL_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                model="gpt-4-turbo-preview",
+                temperature=0.7,
+                max_tokens=4096,
+            )
+            if not json_content:
+                # Обычный режим + санитайзер
+                content = self.openai_client.call_ai(
+                    system_prompt=TOPIC_MATERIAL_SYSTEM_PROMPT,
+                    user_prompt=prompt,
                     model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": TOPIC_MATERIAL_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
                     temperature=0.7,
-                    max_tokens=4000  # Безопасный лимит для gpt-4
+                    max_tokens=4000,
                 )
-            
-            content = response.choices[0].message.content.strip()
-            # Для материала темы не проверяем конкретный ключ
-            json_content = self._extract_json(content, expected_key=None)
+                if not content:
+                    return None
+                json_content = extract_json(content, expected_key=None)
             
             if not json_content:
                 logger.warning(f"Не удалось извлечь JSON для темы: {topic_title}")

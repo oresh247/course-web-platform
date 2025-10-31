@@ -1,6 +1,5 @@
 """
 OpenAI Client с поддержкой прокси
-Адаптировано из TGBotCreateCourse проекта
 """
 import openai
 import json
@@ -16,24 +15,25 @@ class OpenAIClient:
     """Клиент для работы с OpenAI API с поддержкой прокси"""
     
     def __init__(self):
+        from backend.config import settings
         # Получаем API ключ из переменных окружения
-        api_key = os.getenv('OPENAI_API_KEY')
+        api_key = settings.OPENAI_API_KEY or os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise ValueError("OPENAI_API_KEY не найден в переменных окружения")
         
         # Настраиваем прокси из .env или используем прямое подключение
-        proxy_url = os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
+        proxy_url = settings.HTTPS_PROXY or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
         
         if proxy_url:
             logger.info(f"Используем прокси для OpenAI API")
             http_client = httpx.Client(
-                verify=False, 
-                timeout=120.0,  # Увеличенный таймаут для веб-версии
+                verify=False,
+                timeout=float(settings.OPENAI_TIMEOUT or 120.0),
                 proxies=proxy_url
             )
         else:
             logger.info("Прямое подключение к OpenAI API")
-            http_client = httpx.Client(verify=False, timeout=120.0)
+            http_client = httpx.Client(verify=False, timeout=float(settings.OPENAI_TIMEOUT or 120.0))
         
         self.client = openai.OpenAI(
             api_key=api_key,
@@ -143,10 +143,12 @@ class OpenAIClient:
         self, 
         system_prompt: str, 
         user_prompt: str, 
-        model: str = "gpt-4",
-        temperature: float = 0.7,
-        max_tokens: int = 3000,
-        response_format: Optional[Dict[str, str]] = None
+        model: str = None,
+        temperature: float = None,
+        max_tokens: int = None,
+        response_format: Optional[Dict[str, str]] = None,
+        retries: int = None,
+        backoff_seconds: float = None
     ) -> Optional[str]:
         """
         Универсальный метод для вызова OpenAI API
@@ -162,25 +164,90 @@ class OpenAIClient:
         Returns:
             Текст ответа или None
         """
-        try:
-            kwargs = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "max_tokens": max_tokens,
-                "temperature": temperature
-            }
-            
-            if response_format:
-                kwargs["response_format"] = response_format
-            
-            response = self.client.chat.completions.create(**kwargs)
-            
-            return response.choices[0].message.content.strip()
-            
-        except Exception as e:
-            logger.error(f"Ошибка при вызове OpenAI API: {e}")
+        from backend.config import settings
+        # Применяем значения по умолчанию из settings при отсутствии явных аргументов
+        if model is None:
+            model = settings.OPENAI_MODEL_DEFAULT
+        if temperature is None:
+            temperature = settings.OPENAI_TEMPERATURE_DEFAULT
+        if max_tokens is None:
+            max_tokens = settings.OPENAI_MAX_TOKENS_DEFAULT
+        if retries is None:
+            retries = settings.OPENAI_RETRIES_DEFAULT
+        if backoff_seconds is None:
+            backoff_seconds = settings.OPENAI_BACKOFF_SECONDS_DEFAULT
+
+        import time
+        start_time = time.time()
+        attempt = 0
+        last_error: Optional[Exception] = None
+        while attempt <= retries:
+            try:
+                kwargs = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                }
+                if response_format:
+                    kwargs["response_format"] = response_format
+                response = self.client.chat.completions.create(**kwargs)
+                latency_ms = int((time.time() - start_time) * 1000)
+                usage = getattr(response, "usage", None)
+                total_tokens = getattr(usage, "total_tokens", None) if usage else None
+                prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
+                completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+                logger.info(
+                    f"OpenAI call ok | model={kwargs['model']} temp={kwargs['temperature']} max_tokens={kwargs['max_tokens']} "
+                    f"attempt={attempt+1} latency_ms={latency_ms} tokens_total={total_tokens} tokens_prompt={prompt_tokens} tokens_completion={completion_tokens}"
+                )
+                return response.choices[0].message.content.strip()
+            except Exception as e:
+                last_error = e
+                logger.warning(f"OpenAI call fail attempt {attempt + 1}/{retries + 1}: {e}")
+                if attempt == retries:
+                    break
+                try:
+                    time.sleep(backoff_seconds * (2 ** attempt))
+                except Exception:
+                    pass
+                attempt += 1
+        total_duration_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"OpenAI call failed after {retries + 1} attempts in {total_duration_ms} ms: {last_error}")
+        return None
+
+    def call_ai_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str = None,
+        temperature: float = None,
+        max_tokens: int = None,
+        retries: int = None,
+        backoff_seconds: float = None
+    ) -> Optional[Dict[str, Any]]:
+        """Вызывает модель в JSON-режиме и парсит результат в dict.
+        Возвращает None, если парсинг не удался.
+        """
+        content = self.call_ai(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            retries=retries,
+            backoff_seconds=backoff_seconds,
+        )
+        if content is None:
             return None
+        try:
+            # В JSON-режиме OpenAI должен вернуть корректный JSON
+            return json.loads(content)
+        except Exception:
+            # Fallback: попытаться вытащить JSON из текста
+            return self._extract_json_from_response(content)
 

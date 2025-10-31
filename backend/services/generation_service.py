@@ -5,6 +5,7 @@ import logging
 from typing import Optional, Dict, Any, List
 
 from backend.ai.openai_client import OpenAIClient
+from backend.ai.interfaces import AIChatClient
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +13,8 @@ logger = logging.getLogger(__name__)
 class GenerationService:
     """Сервис для AI-генерации и регенерации контента"""
     
-    def __init__(self):
-        self.openai_client = OpenAIClient()
+    def __init__(self, ai_client: AIChatClient | None = None):
+        self.openai_client: AIChatClient = ai_client or OpenAIClient()
     
     def regenerate_module_goal(
         self,
@@ -31,17 +32,13 @@ class GenerationService:
 Сгенерируй краткую (1-2 предложения) и четкую цель для этого модуля.
 Ответь ТОЛЬКО целью, без дополнительного текста."""
             
-            response = self.openai_client.client.chat.completions.create(
+            new_goal = self.openai_client.call_ai(
+                system_prompt="Ты эксперт по созданию образовательного контента.",
+                user_prompt=prompt,
                 model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "Ты эксперт по созданию образовательного контента."},
-                    {"role": "user", "content": prompt}
-                ],
                 temperature=0.7,
                 max_tokens=200
             )
-            
-            new_goal = response.choices[0].message.content.strip()
             logger.info(f"✅ Цель модуля регенерирована: {new_goal[:50]}...")
             return new_goal
             
@@ -70,17 +67,13 @@ class GenerationService:
 Сгенерируй детальный план контента для этого урока (5-7 пунктов).
 Верни ТОЛЬКО список пунктов, каждый с новой строки, начиная с "- "."""
             
-            response = self.openai_client.client.chat.completions.create(
+            content_text = self.openai_client.call_ai(
+                system_prompt="Ты эксперт по созданию образовательного контента.",
+                user_prompt=prompt,
                 model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "Ты эксперт по созданию образовательного контента."},
-                    {"role": "user", "content": prompt}
-                ],
                 temperature=0.7,
                 max_tokens=500
             )
-            
-            content_text = response.choices[0].message.content.strip()
             
             # Парсим ответ в список
             new_content_outline = []
