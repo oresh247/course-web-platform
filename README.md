@@ -10,6 +10,9 @@
 - 💾 **База данных SQLite** - хранение курсов локально
 - 🌐 **Работа через прокси** - поддержка корпоративных прокси для OpenAI API
 - 📱 **Современный UI** - адаптивный интерфейс на Ant Design
+ - 🧩 **Дублирование/удаление** - модули и уроки можно дублировать и удалять
+ - 🎥 **Видео HeyGen** - генерация и диагностика; есть проверочные скрипты
+ - ❓ **Инструкция** - иконка справки в шапке ведёт на `public/user-guide.html`
 
 ## 🏗️ Архитектура проекта
 
@@ -22,10 +25,10 @@ course-web-platform/
 │   │   └── content_generator.py
 │   ├── models/                 # Pydantic модели
 │   │   └── domain.py
-│   ├── api/                    # REST API endpoints
-│   │   └── courses.py
-│   ├── database/               # SQLite база данных
-│   │   └── db.py
+│   ├── api/                    # REST API endpoints (courses/modules/lessons)
+│   ├── database/               # SQLite/Postgres абстракции
+│   ├── services/               # Экспорт/генерация/видео/кэш
+│   ├── tools/                  # Скрипты тестов и диагностики
 │   ├── main.py                # Точка входа FastAPI
 │   └── requirements.txt
 ├── frontend/                   # React Frontend
@@ -87,7 +90,7 @@ npm install
 ```bash
 cd backend
 venv\Scripts\activate
-python main.py
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Backend будет доступен на: http://localhost:8000
@@ -205,10 +208,14 @@ DEBUG=True
 - `PUT /api/courses/{id}` - Обновить курс
 - `DELETE /api/courses/{id}` - Удалить курс
 
-### Контент модулей
+### Модули и уроки
 
-- `POST /api/courses/{id}/modules/{module_number}/generate` - Сгенерировать контент
+- `POST /api/courses/{id}/modules/{module_number}/generate` - Сгенерировать контент модуля
 - `GET /api/courses/{id}/modules/{module_number}/content` - Получить контент модуля
+- `POST /api/courses/{id}/modules/{module_number}/duplicate` - Дублировать модуль (с контентом)
+- `DELETE /api/courses/{id}/modules/{module_number}` - Удалить модуль (и детальный контент)
+- `POST /api/courses/{id}/modules/{module_number}/lessons/{lesson_index}/duplicate` - Дублировать урок (с контентом)
+- `DELETE /api/courses/{id}/modules/{module_number}/lessons/{lesson_index}` - Удалить урок (и контент)
 
 ### Документация
 
@@ -223,6 +230,7 @@ DEBUG=True
 - **OpenAI API** - генерация контента с GPT-4
 - **SQLite** - локальная база данных
 - **httpx** - HTTP клиент с поддержкой прокси
+- **requests** - простой HTTP‑клиент (для HeyGen и утилит)
 
 ### Frontend
 - **React 18** - UI библиотека
@@ -279,6 +287,18 @@ npm run preview
 ```
 
 ## 🐛 Решение проблем
+
+### Проверочные скрипты (backend/tools)
+
+Запускать из корня проекта:
+
+```bash
+python backend/tools/check_heygen_access.py --video <VIDEO_ID> [--backend http://localhost:8000]
+python backend/tools/test_video_caching.py
+python backend/tools/test_video_diagnostic.py
+python backend/tools/check_lesson_video.py
+python backend/tools/check_video_struct.py
+```
 
 ### OpenAI API не работает
 

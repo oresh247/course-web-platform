@@ -51,7 +51,7 @@ npm install
 ```bash
 cd backend
 venv\Scripts\activate
-python main.py
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Вы должны увидеть:
@@ -134,6 +134,16 @@ HTTPS_PROXY=http://your-proxy-server:port
 - 📖 Полная документация: `README.md`
 - 🔌 API документация: http://localhost:8000/api/docs
 - 🎨 Frontend: http://localhost:3000
+
+## 🧩 Полезные утилиты
+
+Запускать из корня проекта:
+
+```bash
+python backend/tools/check_heygen_access.py --video <VIDEO_ID> [--backend http://localhost:8000]
+python backend/tools/test_video_caching.py
+python backend/tools/test_video_diagnostic.py
+```
 
 ---
 
