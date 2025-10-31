@@ -1,5 +1,12 @@
 """
-OpenAI Client с поддержкой прокси
+Клиент для OpenAI API с поддержкой прокси и настраиваемых таймаутов.
+
+Используемые библиотеки:
+- `openai` — официальный SDK для обращения к Chat Completions и др.
+- `httpx` — HTTP‑клиент, позволяет гибко настраивать прокси и таймауты,
+  здесь мы передаём его в OpenAI SDK как транспорт.
+
+Примечание: в корпоративных сетях может понадобиться `HTTPS_PROXY`.
 """
 import openai
 import json
@@ -12,7 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIClient:
-    """Клиент для работы с OpenAI API с поддержкой прокси"""
+    """Клиент для работы с OpenAI API с поддержкой прокси.
+
+    - Автоматически берёт ключ из `settings`/переменных окружения.
+    - Умеет работать через прокси (`HTTPS_PROXY`).
+    - Логирует метрики (время, токены, ретраи) для диагностики.
+    """
     
     def __init__(self):
         from backend.config import settings
@@ -48,9 +60,8 @@ class OpenAIClient:
         duration_weeks: int = None, 
         hours_per_week: int = None
     ) -> Optional[Dict[str, Any]]:
-        """
-        Генерирует структуру курса с помощью ChatGPT API
-        
+        """Генерирует структуру курса с помощью Chat Completions.
+
         Args:
             topic: Тема курса
             audience_level: Уровень аудитории (junior/middle/senior)
@@ -110,9 +121,8 @@ class OpenAIClient:
             return None
     
     def _extract_json_from_response(self, content: str) -> Optional[Dict[str, Any]]:
-        """
-        Извлекает JSON из ответа ChatGPT
-        
+        """Извлекает JSON из текстового ответа модели.
+
         Args:
             content: Текст ответа от API
             
