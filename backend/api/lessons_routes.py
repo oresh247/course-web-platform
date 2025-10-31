@@ -1,5 +1,11 @@
 """
-API endpoints для работы с уроками курса
+Маршруты FastAPI для работы с уроками: дублирование/удаление уроков,
+AI‑регенерация контента и экспорт.
+
+Используемые библиотеки и концепции:
+- `fastapi` — `APIRouter`, `HTTPException`, `Response`.
+- `pydantic.BaseModel` — описание и валидация входных тел запросов.
+- `logging` — логируем ключевые шаги и ошибки.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -21,6 +27,11 @@ router = APIRouter(prefix="/api/courses", tags=["lessons"])
 # Инициализируем генератор контента
 content_generator = ContentGenerator()
 class DuplicateLessonRequest(BaseModel):
+    """Тело запроса для дублирования урока.
+
+    Позволяет задать новое имя, цель и (опционально) план контента/оценку
+    до фактического копирования.
+    """
     lesson_title: str
     lesson_goal: str
     content_outline: list[str] | None = None

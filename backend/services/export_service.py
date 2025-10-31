@@ -1,5 +1,10 @@
 """
-Сервис для экспорта контента в различные форматы
+Сервис‑фасад для экспорта контента в разные форматы (Markdown, HTML, PPTX).
+
+Используемые модули:
+- `backend.services.export.markdown/html/pptx` — специализированные провайдеры
+  форматов. Этот сервис делегирует туда фактическую генерацию.
+- `logging` — журналирование операций экспорта.
 """
 from typing import Dict, Any
 from io import BytesIO
@@ -27,7 +32,11 @@ logger = logging.getLogger(__name__)
 
 
 class ExportService:
-    """Сервис для экспорта курсов, модулей и уроков в различные форматы"""
+    """Экспорт курсов, модулей и уроков в различные форматы.
+
+    Методы возвращают строку (для текстовых форматов) или байты (для PPTX).
+    На уровне API эти значения упаковываются в `fastapi.Response`.
+    """
     
     # ========== ЭКСПОРТ КУРСА ==========
     
@@ -38,42 +47,51 @@ class ExportService:
     
     @staticmethod
     def export_course_text(course: Course) -> str:
+        """Генерирует простой текст для всего курса"""
         return _export_course_text(course)
     
     @staticmethod
     def export_course_html(course: Course) -> str:
+        """Генерирует HTML представление курса"""
         return _export_course_html(course)
     
     @staticmethod
     def export_course_pptx(course: Course) -> bytes:
+        """Генерирует PPTX (презентацию) для курса"""
         return _export_course_pptx(course)
     
     # ========== ЭКСПОРТ МОДУЛЯ (ДЕТАЛЬНЫЙ КОНТЕНТ) ==========
     
     @staticmethod
     def export_module_markdown(course: Course, module: Module, content_data: dict) -> str:
+        """Markdown экспорт детального контента модуля"""
         return _export_module_markdown(course, module, content_data)
     
     @staticmethod  
     def export_module_html(course: Course, module: Module, content_data: dict) -> str:
+        """HTML экспорт детального контента модуля"""
         return _export_module_html(course, module, content_data)
     
     @staticmethod
     def export_module_pptx(course: Course, module: Module, content_data: dict) -> bytes:
+        """PPTX экспорт детального контента модуля"""
         return _export_module_pptx(course, module, content_data)
     
     # ========== ЭКСПОРТ УРОКА (ДЕТАЛЬНЫЙ КОНТЕНТ) ==========
     
     @staticmethod
     def export_lesson_markdown(course: Course, module: Module, lesson, content_data: dict) -> str:
+        """Markdown экспорт детального контента урока"""
         return _export_lesson_markdown(course, module, lesson, content_data)
     
     @staticmethod
     def export_lesson_html(course: Course, module: Module, lesson, content_data: dict) -> str:
+        """HTML экспорт детального контента урока"""
         return _export_lesson_html(course, module, lesson, content_data)
     
     @staticmethod
     def export_lesson_pptx(course: Course, module: Module, lesson, content_data: dict) -> bytes:
+        """PPTX экспорт детального контента урока"""
         return _export_lesson_pptx(course, module, lesson, content_data)
 
 

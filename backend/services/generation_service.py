@@ -1,5 +1,10 @@
 """
-Сервис для AI-генерации контента (регенерация целей, планов контента)
+Сервис для AI‑генерации контента (регенерация целей модулей и планов уроков).
+
+Используемые библиотеки и компоненты:
+- `logging` — журналирование шагов и ошибок.
+- `backend.ai.openai_client.OpenAIClient` — адаптер к OpenAI API.
+- Типы `Optional`, `List` — аннотации для понятного API сервисов.
 """
 import logging
 from typing import Optional, Dict, Any, List
@@ -11,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 class GenerationService:
-    """Сервис для AI-генерации и регенерации контента"""
+    """Сервис для AI‑генерации и регенерации контента.
+
+    Через `OpenAIClient` выполняет промпт‑вызовы и возвращает готовые строки/списки.
+    """
     
     def __init__(self, ai_client: AIChatClient | None = None):
         self.openai_client: AIChatClient = ai_client or OpenAIClient()
@@ -23,7 +31,10 @@ class GenerationService:
         module_number: int,
         module_title: str
     ) -> Optional[str]:
-        """Регенерирует цель модуля с помощью AI"""
+        """Регенерирует цель модуля с помощью AI.
+
+        Возвращает короткую цель (1‑2 предложения) или None при ошибке.
+        """
         try:
             prompt = f"""Курс: {course_title}
 Целевая аудитория: {target_audience}
@@ -55,7 +66,10 @@ class GenerationService:
         lesson_format: str,
         estimated_time_minutes: int
     ) -> Optional[List[str]]:
-        """Регенерирует план контента урока с помощью AI"""
+        """Регенерирует план контента урока с помощью AI.
+
+        Возвращает список пунктов (5–7) или None при ошибке.
+        """
         try:
             prompt = f"""Курс: {course_title}
 Модуль: {module_title}

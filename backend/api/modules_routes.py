@@ -1,5 +1,11 @@
 """
-API endpoints для работы с модулями курса
+Маршруты FastAPI для работы с модулями курса: дублирование, удаление,
+генерация и экспорт детального контента.
+
+Используемые библиотеки и концепции:
+- `fastapi` — `APIRouter` для группировки endpoint-ов; `HTTPException` для ошибок.
+- `pydantic.BaseModel` — описание тел запросов с валидацией (например, DuplicateModuleRequest).
+- `logging` — логируем шаги и ошибки для последующей диагностики.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -21,6 +27,10 @@ router = APIRouter(prefix="/api/courses", tags=["modules"])
 # Инициализируем генератор контента
 content_generator = ContentGenerator()
 class DuplicateModuleRequest(BaseModel):
+    """Тело запроса для дублирования модуля.
+
+    Поля перезаписывают заголовок и цель будущего модуля-копии.
+    """
     module_title: str
     module_goal: str
 

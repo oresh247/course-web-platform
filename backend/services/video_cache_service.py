@@ -1,5 +1,10 @@
 """
-Сервис для управления кэшем видео
+Сервис для управления кэшем видео (локальный JSON‑кэш).
+
+Используемые библиотеки и компоненты:
+- `json`, `pathlib.Path` — хранение кэша в файле JSON.
+- `datetime` — отметки времени создания/обновления.
+- `logging` — журналирование операций.
 """
 import json
 import os
@@ -13,7 +18,11 @@ from ..models.video_cache_models import VideoCache, VideoGenerationRequest, Vide
 logger = logging.getLogger(__name__)
 
 class VideoCacheService:
-    """Сервис для управления кэшем видео"""
+    """Высокоуровневый API к локальному JSON‑кэшу видео.
+
+    Позволяет сохранять/читать статусы генерации, ссылки на скачивание,
+    а также получать статистику кэша.
+    """
     
     def __init__(self, cache_file: str = "video_cache.json"):
         self.cache_file = Path(cache_file)

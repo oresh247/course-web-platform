@@ -1,5 +1,11 @@
 """
-API endpoints для CRUD операций с курсами
+Маршруты FastAPI для создания и управления курсами (CRUD + экспорт).
+
+Используемые библиотеки и концепции:
+- `fastapi` — веб‑фреймворк. `APIRouter` группирует маршруты, `HTTPException`
+  возвращает ошибки с нужным статус‑кодом. `Response` — для отдачи файлов.
+- `pydantic` модели из `backend.models.domain` — строгая валидация входных/выходных данных.
+- `logging` — логирование действий и ошибок для диагностики.
 """
 from fastapi import APIRouter, HTTPException
 from typing import List
