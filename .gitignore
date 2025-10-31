@@ -81,3 +81,6 @@ htmlcov/
 *.temp
 .cache/
 
+# Local env files (not for Git)
+render-database.env
+
