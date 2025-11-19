@@ -93,13 +93,14 @@ class OpenAIClient:
             
             logger.info(f"Генерируем структуру курса: {topic} для {audience_level}")
             
+            from backend.config import settings
             response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": COURSE_GENERATION_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=3000,
+                max_tokens=settings.OPENAI_MAX_TOKENS_DEFAULT,
                 temperature=0.7
             )
             
@@ -110,6 +111,8 @@ class OpenAIClient:
             json_content = self._extract_json_from_response(content)
             
             if json_content:
+                # Постобработка: гарантируем, что estimated_time_minutes >= 15 для всех уроков
+                self._normalize_lesson_times(json_content)
                 logger.info(f"✅ Структура курса создана: {json_content.get('course_title', 'Без названия')}")
                 return json_content
             else:
@@ -119,6 +122,37 @@ class OpenAIClient:
         except Exception as e:
             logger.error(f"Ошибка при обращении к OpenAI API: {e}")
             return None
+    
+    def _normalize_lesson_times(self, course_data: Dict[str, Any]) -> None:
+        """Нормализует estimated_time_minutes для всех уроков: гарантирует >= 15 минут.
+        
+        Args:
+            course_data: Словарь с данными курса (будет изменен in-place)
+        """
+        if "modules" not in course_data:
+            return
+        
+        for module in course_data.get("modules", []):
+            if "lessons" not in module:
+                continue
+            
+            for lesson in module.get("lessons", []):
+                if "estimated_time_minutes" in lesson:
+                    time_minutes = lesson["estimated_time_minutes"]
+                    # Если значение меньше 15, устанавливаем минимум 15
+                    if isinstance(time_minutes, (int, float)) and time_minutes < 15:
+                        logger.warning(
+                            f"Исправлено время урока '{lesson.get('lesson_title', 'Без названия')}': "
+                            f"{time_minutes} -> 15 минут"
+                        )
+                        lesson["estimated_time_minutes"] = 15
+                    # Если значение больше 480, ограничиваем до 480
+                    elif isinstance(time_minutes, (int, float)) and time_minutes > 480:
+                        logger.warning(
+                            f"Исправлено время урока '{lesson.get('lesson_title', 'Без названия')}': "
+                            f"{time_minutes} -> 480 минут"
+                        )
+                        lesson["estimated_time_minutes"] = 480
     
     def _extract_json_from_response(self, content: str) -> Optional[Dict[str, Any]]:
         """Извлекает JSON из текстового ответа модели.
