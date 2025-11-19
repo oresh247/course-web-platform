@@ -19,6 +19,7 @@ const LessonItem = ({
   index, 
   moduleNumber,
   courseId,
+  contentRefreshKey = 0,
   onGenerateContent,
   onViewContent,
   onExportContent,
@@ -53,7 +54,7 @@ const LessonItem = ({
       }
     };
     checkDetail();
-  }, [courseId, moduleNumber, index]);
+  }, [courseId, moduleNumber, index, contentRefreshKey]);
   
   const loadVideoInfo = async () => {
     if (!courseId || courseId === null || !moduleNumber || moduleNumber === null || index === undefined || index === null) {

@@ -62,6 +62,7 @@ function CourseViewPage() {
   const [loadingContent, setLoadingContent] = useState(false)
   const [generatingLesson, setGeneratingLesson] = useState(null)
   const [lessonContentModal, setLessonContentModal] = useState({ visible: false, lesson: null, content: null })
+  const [contentRefreshKey, setContentRefreshKey] = useState(0)
 
   useEffect(() => {
     // Проверяем, что id есть и валиден перед загрузкой
@@ -591,6 +592,7 @@ function CourseViewPage() {
       }
       const response = await coursesApi.generateLessonDetailedContent(courseId, moduleNumber, lessonIndex)
       message.success('Детальный контент урока успешно сгенерирован!')
+      setContentRefreshKey((prev) => prev + 1)
       
       Modal.info({
         title: 'Контент урока сгенерирован',
@@ -820,6 +822,7 @@ function CourseViewPage() {
                         index={index}
                         moduleNumber={module.module_number}
                         courseId={id ? parseInt(id, 10) : null}
+                        contentRefreshKey={contentRefreshKey}
                         onGenerateContent={() => handleGenerateLessonContent(module.module_number, index)}
                         onViewContent={() => handleViewLessonContent(module.module_number, index, lesson)}
                         onExportContent={(format) => handleExportLessonContent(module.module_number, index, format)}
