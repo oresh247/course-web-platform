@@ -149,10 +149,8 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         lesson_keys: Object.keys(lesson)
       });
       
-      loadAvatars();
-      loadVoices();
-      loadLessonContent();
-      loadVideoInfoFromDB();
+      // ВАЖНО: Сначала устанавливаем скрипт из content_outline, ПОТОМ загружаем контент
+      // Это гарантирует, что скрипт будет установлен из правильного источника
       
       // ВСЕГДА инициализируем скрипт из плана контента урока при открытии модального окна
       // Используем план контента (content_outline) как основной источник для скрипта
@@ -179,7 +177,7 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       }
       
       if (scriptFromOutline) {
-        console.log('📝 [LessonVideoGenerator] Устанавливаем скрипт из плана контента:', scriptFromOutline);
+        console.log('📝 [LessonVideoGenerator] ПРИНУДИТЕЛЬНО устанавливаем скрипт из плана контента:', scriptFromOutline);
         // ВСЕГДА устанавливаем скрипт из content_outline, даже если videoScript уже установлен
         setVideoScript(scriptFromOutline);
       } else {
@@ -192,6 +190,12 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
           setVideoScript(fallbackScript);
         }
       }
+      
+      // Теперь загружаем остальные данные (это не должно перезаписывать скрипт)
+      loadAvatars();
+      loadVoices();
+      loadLessonContent();
+      loadVideoInfoFromDB();
       
       // Проверяем кэшированное видео для этого урока
       checkCachedVideo();
@@ -305,28 +309,42 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         setLessonContent(cachedContent);
         setIsContentFromCache(true);
         
-        // ВСЕГДА используем план контента урока (content_outline) из объекта lesson в приоритете
-        // НЕ используем learning_objectives из lesson_content!
-        let scriptFromOutline = '';
-        if (lesson.content_outline) {
-          if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
-            scriptFromOutline = lesson.content_outline.join('. ');
-          } else if (typeof lesson.content_outline === 'string' && lesson.content_outline.trim()) {
-            scriptFromOutline = lesson.content_outline
-              .split(/\n|,|;|\./)
-              .map(item => item.trim())
-              .filter(item => item.length > 0)
-              .join('. ');
-          }
-        }
+        // ВАЖНО: НЕ перезаписываем скрипт, если он уже установлен из content_outline
+        // Проверяем, установлен ли скрипт из content_outline
+        const currentScript = videoScript || '';
+        const hasContentOutlineScript = lesson.content_outline && (
+          (Array.isArray(lesson.content_outline) && currentScript.includes(lesson.content_outline[0]?.substring(0, 20))) ||
+          (typeof lesson.content_outline === 'string' && currentScript.includes(lesson.content_outline.substring(0, 20)))
+        );
         
-        if (scriptFromOutline) {
-          console.log('📝 Используем план контента (content_outline) для скрипта (из кэша):', scriptFromOutline);
-          setVideoScript(scriptFromOutline);
+        if (!hasContentOutlineScript) {
+          // ВСЕГДА используем план контента урока (content_outline) из объекта lesson в приоритете
+          // НЕ используем learning_objectives из lesson_content!
+          let scriptFromOutline = '';
+          if (lesson.content_outline) {
+            if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
+              scriptFromOutline = lesson.content_outline.join('. ');
+            } else if (typeof lesson.content_outline === 'string' && lesson.content_outline.trim()) {
+              scriptFromOutline = lesson.content_outline
+                .split(/\n|,|;|\./)
+                .map(item => item.trim())
+                .filter(item => item.length > 0)
+                .join('. ');
+            }
+          }
+          
+          if (scriptFromOutline) {
+            console.log('📝 Используем план контента (content_outline) для скрипта (из кэша):', scriptFromOutline);
+            setVideoScript(scriptFromOutline);
+          } else {
+            // Fallback на другие источники, НО НЕ learning_objectives!
+            console.warn('⚠️ План контента (content_outline) недоступен, используем fallback');
+            if (!videoScript) {
+              setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
+            }
+          }
         } else {
-          // Fallback на другие источники, НО НЕ learning_objectives!
-          console.warn('⚠️ План контента (content_outline) недоступен, используем fallback');
-          setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
+          console.log('✅ Скрипт уже установлен из content_outline, не перезаписываем');
         }
         return;
       }
@@ -345,28 +363,42 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         // Сохраняем в кэш
         setCachedLessonContent(courseId, moduleNumber, lessonIndex, response.lesson_content);
         
-        // ВСЕГДА используем план контента урока (content_outline) из объекта lesson в приоритете
-        // НЕ используем learning_objectives из lesson_content!
-        let scriptFromOutline = '';
-        if (lesson.content_outline) {
-          if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
-            scriptFromOutline = lesson.content_outline.join('. ');
-          } else if (typeof lesson.content_outline === 'string' && lesson.content_outline.trim()) {
-            scriptFromOutline = lesson.content_outline
-              .split(/\n|,|;|\./)
-              .map(item => item.trim())
-              .filter(item => item.length > 0)
-              .join('. ');
-          }
-        }
+        // ВАЖНО: НЕ перезаписываем скрипт, если он уже установлен из content_outline
+        // Проверяем, установлен ли скрипт из content_outline
+        const currentScript = videoScript || '';
+        const hasContentOutlineScript = lesson.content_outline && (
+          (Array.isArray(lesson.content_outline) && currentScript.includes(lesson.content_outline[0]?.substring(0, 20))) ||
+          (typeof lesson.content_outline === 'string' && currentScript.includes(lesson.content_outline.substring(0, 20)))
+        );
         
-        if (scriptFromOutline) {
-          console.log('📝 Используем план контента (content_outline) для скрипта (с сервера):', scriptFromOutline);
-          setVideoScript(scriptFromOutline);
+        if (!hasContentOutlineScript) {
+          // ВСЕГДА используем план контента урока (content_outline) из объекта lesson в приоритете
+          // НЕ используем learning_objectives из lesson_content!
+          let scriptFromOutline = '';
+          if (lesson.content_outline) {
+            if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
+              scriptFromOutline = lesson.content_outline.join('. ');
+            } else if (typeof lesson.content_outline === 'string' && lesson.content_outline.trim()) {
+              scriptFromOutline = lesson.content_outline
+                .split(/\n|,|;|\./)
+                .map(item => item.trim())
+                .filter(item => item.length > 0)
+                .join('. ');
+            }
+          }
+          
+          if (scriptFromOutline) {
+            console.log('📝 Используем план контента (content_outline) для скрипта (с сервера):', scriptFromOutline);
+            setVideoScript(scriptFromOutline);
+          } else {
+            // Fallback на другие источники, НО НЕ learning_objectives!
+            console.warn('⚠️ План контента (content_outline) недоступен, используем fallback');
+            if (!videoScript) {
+              setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
+            }
+          }
         } else {
-          // Fallback на другие источники, НО НЕ learning_objectives!
-          console.warn('⚠️ План контента (content_outline) недоступен, используем fallback');
-          setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
+          console.log('✅ Скрипт уже установлен из content_outline, не перезаписываем');
         }
       } else {
         setLessonContentError('Контент урока не найден');
