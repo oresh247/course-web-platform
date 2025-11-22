@@ -138,6 +138,17 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
   // Загружаем аватары, голоса и детальный контент урока при открытии модального окна
   useEffect(() => {
     if (isModalVisible) {
+      // ОТЛАДКА: выводим всю информацию об уроке
+      console.log('🔍 [LessonVideoGenerator] Открыто модальное окно. Данные урока:', {
+        lesson_title: lesson.lesson_title,
+        lesson_goal: lesson.lesson_goal,
+        content_outline: lesson.content_outline,
+        content_outline_type: typeof lesson.content_outline,
+        content_outline_isArray: Array.isArray(lesson.content_outline),
+        content_outline_length: Array.isArray(lesson.content_outline) ? lesson.content_outline.length : 'N/A',
+        lesson_keys: Object.keys(lesson)
+      });
+      
       loadAvatars();
       loadVoices();
       loadLessonContent();
@@ -151,6 +162,7 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
           // Массив строк
           scriptFromOutline = lesson.content_outline.join('. ');
+          console.log('✅ [LessonVideoGenerator] content_outline - массив, скрипт:', scriptFromOutline);
         } else if (typeof lesson.content_outline === 'string' && lesson.content_outline.trim()) {
           // Строка - разбиваем по переносам или разделителям
           scriptFromOutline = lesson.content_outline
@@ -158,24 +170,33 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
             .map(item => item.trim())
             .filter(item => item.length > 0)
             .join('. ');
+          console.log('✅ [LessonVideoGenerator] content_outline - строка, скрипт:', scriptFromOutline);
+        } else {
+          console.warn('⚠️ [LessonVideoGenerator] content_outline есть, но пустой или неверного формата:', lesson.content_outline);
         }
+      } else {
+        console.warn('❌ [LessonVideoGenerator] content_outline отсутствует в объекте lesson');
       }
       
       if (scriptFromOutline) {
-        console.log('📝 Инициализируем скрипт из плана контента при открытии модального окна:', scriptFromOutline);
+        console.log('📝 [LessonVideoGenerator] Устанавливаем скрипт из плана контента:', scriptFromOutline);
+        // ВСЕГДА устанавливаем скрипт из content_outline, даже если videoScript уже установлен
         setVideoScript(scriptFromOutline);
       } else {
         // Fallback на другие источники только если content_outline недоступен
+        console.warn('⚠️ [LessonVideoGenerator] План контента недоступен, используем fallback');
+        const fallbackScript = lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока';
+        console.log('📝 [LessonVideoGenerator] Fallback скрипт:', fallbackScript);
+        // Устанавливаем fallback только если videoScript еще не установлен
         if (!videoScript) {
-          console.warn('⚠️ План контента недоступен при открытии модального окна, используем fallback');
-          setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
+          setVideoScript(fallbackScript);
         }
       }
       
       // Проверяем кэшированное видео для этого урока
       checkCachedVideo();
     }
-  }, [isModalVisible]);
+  }, [isModalVisible, lesson]);
   
   // Загружаем информацию о видео из базы данных
   const loadVideoInfoFromDB = async () => {
@@ -398,8 +419,19 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
   };
 
   const getVideoScript = () => {
+    // ОТЛАДКА: выводим текущее состояние
+    console.log('🔍 [getVideoScript] Вызов функции. Текущее состояние:', {
+      videoScript: videoScript,
+      hasVideoScript: videoScript && videoScript.trim(),
+      lesson_content_outline: lesson.content_outline,
+      lesson_content_outline_type: typeof lesson.content_outline,
+      lesson_content_outline_isArray: Array.isArray(lesson.content_outline),
+      lesson_keys: Object.keys(lesson)
+    });
+    
     // Используем редактируемый скрипт, если он есть
     if (videoScript && videoScript.trim()) {
+      console.log('✅ [getVideoScript] Используем существующий videoScript:', videoScript);
       return String(videoScript.trim());
     }
     
@@ -411,6 +443,7 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
         // Массив строк
         outlineText = lesson.content_outline.join('. ');
+        console.log('✅ [getVideoScript] content_outline - массив, скрипт:', outlineText);
       } else if (typeof lesson.content_outline === 'string' && lesson.content_outline.trim()) {
         // Строка - разбиваем по переносам или разделителям
         outlineText = lesson.content_outline
@@ -418,23 +451,29 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
           .map(item => item.trim())
           .filter(item => item.length > 0)
           .join('. ');
+        console.log('✅ [getVideoScript] content_outline - строка, скрипт:', outlineText);
+      } else {
+        console.warn('⚠️ [getVideoScript] content_outline есть, но пустой или неверного формата:', lesson.content_outline);
       }
       
       if (outlineText) {
-        console.log('📝 Используем план контента для скрипта (getVideoScript):', outlineText);
+        console.log('📝 [getVideoScript] Используем план контента для скрипта:', outlineText);
         return String(outlineText);
       }
+    } else {
+      console.warn('❌ [getVideoScript] content_outline отсутствует в объекте lesson');
     }
     
     // Fallback на цели обучения из детального контента
     if (lessonContent && lessonContent.learning_objectives && Array.isArray(lessonContent.learning_objectives)) {
-      console.warn('⚠️ План контента недоступен, используем цели обучения (getVideoScript)');
+      console.warn('⚠️ [getVideoScript] План контента недоступен, используем цели обучения');
       return String(lessonContent.learning_objectives.join('. ') + '.');
     }
     
     // Fallback на другие источники
-    console.warn('⚠️ План контента и цели обучения недоступны, используем fallback (getVideoScript)');
+    console.warn('⚠️ [getVideoScript] План контента и цели обучения недоступны, используем fallback');
     const content = lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока';
+    console.log('📝 [getVideoScript] Fallback скрипт:', content);
     return String(content);
   };
 
