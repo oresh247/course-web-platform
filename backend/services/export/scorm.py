@@ -572,6 +572,52 @@ def download_video(video_url: str, timeout: int = 300) -> Optional[bytes]:
         return None
 
 
+def download_video_via_heygen_api(video_id: str, heygen_service) -> Optional[bytes]:
+    """
+    Скачивает видео через HeyGen API с правильной аутентификацией
+    
+    Args:
+        video_id: ID видео в HeyGen
+        heygen_service: Экземпляр HeyGenService
+        
+    Returns:
+        bytes: Содержимое видео или None при ошибке
+    """
+    import tempfile
+    import os
+    
+    try:
+        logger.info(f"Скачивание видео {video_id} через HeyGen API...")
+        # Создаем временный файл
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+            tmp_path = tmp_file.name
+        
+        try:
+            # Используем метод download_video из heygen_service
+            success = heygen_service.download_video(video_id, tmp_path)
+            if success:
+                # Читаем файл в память
+                with open(tmp_path, 'rb') as f:
+                    video_data = f.read()
+                logger.info(f"Видео {video_id} успешно скачано через API, размер: {len(video_data)} байт")
+                return video_data
+            else:
+                logger.error(f"Не удалось скачать видео {video_id} через HeyGen API")
+                return None
+        finally:
+            # Удаляем временный файл
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить временный файл {tmp_path}: {e}")
+    except Exception as e:
+        logger.error(f"Ошибка скачивания видео {video_id} через HeyGen API: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+        return None
+
+
 def export_course_scorm(course: Course, course_id: int, include_videos: bool = False) -> bytes:
     """
     Экспортирует курс в формат SCORM 1.2 (ZIP архив)
@@ -712,9 +758,10 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                             if not video_url or not video_url.strip():
                                 logger.warning(f"❌ Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой "
                                              f"(video_id={video_id}, status={video_status}). Видео будет пропущено.")
-                        else:
-                            # ВАЖНО: Если есть video_download_url, пытаемся скачать видео
-                            # Статус может быть устаревшим (например, generating), но видео уже готово
+                        
+                        # ВАЖНО: После получения URL из API (или если он уже был), пытаемся скачать видео
+                        # Проверяем, есть ли video_id или video_url для скачивания
+                        if video_id or (video_url and video_url.strip()):
                             # Исключаем только явно failed статусы
                             failed_statuses = ['failed', 'error', 'cancelled', 'timeout']
                             
@@ -722,18 +769,35 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                                 # Если статус явно указывает на ошибку, пропускаем
                                 logger.warning(f"⚠️ Для урока {module.module_number}_{lesson_idx} статус видео '{video_status}' указывает на ошибку. Видео будет пропущено.")
                             else:
-                                # Если есть video_url и статус не failed, пытаемся скачать
-                                # Это включает случаи, когда статус = 'generating', но видео уже готово
-                                logger.info(f"📥 Начинаем скачивание видео для урока {module.module_number}_{lesson_idx} "
-                                          f"(status={video_status}, video_id={video_id}) из {video_url[:100]}...")
-                                video_data = download_video(video_url)
+                                video_data = None
+                                
+                                # Приоритет: если есть video_id, используем HeyGen API (правильная аутентификация)
+                                if video_id and heygen_service and heygen_service is not False:
+                                    try:
+                                        logger.info(f"📥 Скачивание видео для урока {module.module_number}_{lesson_idx} "
+                                                  f"через HeyGen API (video_id={video_id}, status={video_status})...")
+                                        video_data = download_video_via_heygen_api(video_id, heygen_service)
+                                    except Exception as e:
+                                        logger.warning(f"⚠️ Ошибка при скачивании через HeyGen API для video_id={video_id}: {e}")
+                                        # Пробуем fallback - прямое скачивание по URL, если он есть
+                                        if video_url and video_url.strip():
+                                            logger.info(f"📥 Пробуем прямое скачивание по URL как fallback...")
+                                            video_data = download_video(video_url)
+                                
+                                # Если не получилось через API или нет video_id, пробуем прямое скачивание по URL
+                                if not video_data and video_url and video_url.strip():
+                                    logger.info(f"📥 Начинаем прямое скачивание видео для урока {module.module_number}_{lesson_idx} "
+                                              f"из {video_url[:100]}... (status={video_status}, video_id={video_id})")
+                                    video_data = download_video(video_url)
+                                
                                 if video_data:
                                     # Определяем расширение файла
                                     video_ext = 'mp4'  # По умолчанию MP4
-                                    if '.mp4' in video_url.lower():
-                                        video_ext = 'mp4'
-                                    elif '.webm' in video_url.lower():
-                                        video_ext = 'webm'
+                                    if video_url:
+                                        if '.mp4' in video_url.lower():
+                                            video_ext = 'mp4'
+                                        elif '.webm' in video_url.lower():
+                                            video_ext = 'webm'
                                     
                                     video_filename = f"lesson_{module.module_number}_{lesson_idx}.{video_ext}"
                                     video_path = f"videos/{video_filename}"
@@ -745,8 +809,10 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                                               f"(размер: {len(video_data)} байт, {len(video_data) / 1024 / 1024:.2f} MB, "
                                               f"статус был: {video_status})")
                                 else:
-                                    logger.error(f"❌ Не удалось скачать видео для урока {module.module_number}_{lesson_idx} из {video_url[:100]}... "
-                                               f"(статус: {video_status}, video_id: {video_id})")
+                                    logger.error(f"❌ Не удалось скачать видео для урока {module.module_number}_{lesson_idx} "
+                                               f"(статус: {video_status}, video_id: {video_id}, has_url: {bool(video_url)})")
+                        else:
+                            logger.warning(f"⚠️ Для урока {module.module_number}_{lesson_idx} нет video_id и video_url. Видео будет пропущено.")
                     
                     # Итоговая статистика для урока
                     if video_filename:
