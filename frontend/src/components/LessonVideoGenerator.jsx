@@ -305,7 +305,8 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         setLessonContent(cachedContent);
         setIsContentFromCache(true);
         
-        // ВСЕГДА используем план контента урока (content_outline) в приоритете
+        // ВСЕГДА используем план контента урока (content_outline) из объекта lesson в приоритете
+        // НЕ используем learning_objectives из lesson_content!
         let scriptFromOutline = '';
         if (lesson.content_outline) {
           if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
@@ -320,14 +321,11 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         }
         
         if (scriptFromOutline) {
-          console.log('📝 Используем план контента для скрипта (из кэша):', scriptFromOutline);
+          console.log('📝 Используем план контента (content_outline) для скрипта (из кэша):', scriptFromOutline);
           setVideoScript(scriptFromOutline);
-        } else if (cachedContent.learning_objectives && Array.isArray(cachedContent.learning_objectives)) {
-          // Fallback на цели обучения, если план контента недоступен
-          console.warn('⚠️ План контента недоступен, используем цели обучения');
-          setVideoScript(cachedContent.learning_objectives.join('. ') + '.');
         } else {
-          console.warn('⚠️ План контента и цели обучения недоступны, используем fallback');
+          // Fallback на другие источники, НО НЕ learning_objectives!
+          console.warn('⚠️ План контента (content_outline) недоступен, используем fallback');
           setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
         }
         return;
@@ -347,7 +345,8 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         // Сохраняем в кэш
         setCachedLessonContent(courseId, moduleNumber, lessonIndex, response.lesson_content);
         
-        // ВСЕГДА используем план контента урока (content_outline) в приоритете
+        // ВСЕГДА используем план контента урока (content_outline) из объекта lesson в приоритете
+        // НЕ используем learning_objectives из lesson_content!
         let scriptFromOutline = '';
         if (lesson.content_outline) {
           if (Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
@@ -362,14 +361,11 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         }
         
         if (scriptFromOutline) {
-          console.log('📝 Используем план контента для скрипта (с сервера):', scriptFromOutline);
+          console.log('📝 Используем план контента (content_outline) для скрипта (с сервера):', scriptFromOutline);
           setVideoScript(scriptFromOutline);
-        } else if (response.lesson_content.learning_objectives && Array.isArray(response.lesson_content.learning_objectives)) {
-          // Fallback на цели обучения, если план контента недоступен
-          console.warn('⚠️ План контента недоступен, используем цели обучения');
-          setVideoScript(response.lesson_content.learning_objectives.join('. ') + '.');
         } else {
-          console.warn('⚠️ План контента и цели обучения недоступны, используем fallback');
+          // Fallback на другие источники, НО НЕ learning_objectives!
+          console.warn('⚠️ План контента (content_outline) недоступен, используем fallback');
           setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
         }
       } else {
@@ -435,8 +431,8 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       return String(videoScript.trim());
     }
     
-    // Приоритет: план контента урока (content_outline)
-    // Обрабатываем разные форматы: массив, строка с переносами, строка с разделителями
+    // ВАЖНО: Приоритет - план контента урока (content_outline) из объекта lesson
+    // НЕ используем learning_objectives из lesson_content!
     if (lesson.content_outline) {
       let outlineText = '';
       
@@ -457,21 +453,27 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       }
       
       if (outlineText) {
-        console.log('📝 [getVideoScript] Используем план контента для скрипта:', outlineText);
+        console.log('📝 [getVideoScript] Используем план контента (content_outline) для скрипта:', outlineText);
         return String(outlineText);
       }
     } else {
       console.warn('❌ [getVideoScript] content_outline отсутствует в объекте lesson');
     }
     
-    // Fallback на цели обучения из детального контента
-    if (lessonContent && lessonContent.learning_objectives && Array.isArray(lessonContent.learning_objectives)) {
-      console.warn('⚠️ [getVideoScript] План контента недоступен, используем цели обучения');
-      return String(lessonContent.learning_objectives.join('. ') + '.');
+    // Альтернатива: используем заголовки слайдов из lesson_content, если доступны
+    if (lessonContent && lessonContent.slides && Array.isArray(lessonContent.slides) && lessonContent.slides.length > 0) {
+      const slidesTitles = lessonContent.slides
+        .map(slide => slide.title)
+        .filter(title => title && title.trim())
+        .join('. ');
+      if (slidesTitles) {
+        console.log('📝 [getVideoScript] Используем заголовки слайдов как план контента:', slidesTitles);
+        return String(slidesTitles);
+      }
     }
     
-    // Fallback на другие источники
-    console.warn('⚠️ [getVideoScript] План контента и цели обучения недоступны, используем fallback');
+    // Fallback на другие источники (НЕ learning_objectives!)
+    console.warn('⚠️ [getVideoScript] План контента недоступен, используем fallback');
     const content = lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока';
     console.log('📝 [getVideoScript] Fallback скрипт:', content);
     return String(content);
