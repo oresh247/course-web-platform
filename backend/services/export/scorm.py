@@ -278,7 +278,9 @@ def create_lesson_html(
                 paragraphs = slide_content.split("\\n\\n")
                 for para in paragraphs:
                     if para.strip():
-                        content_html += f"<p>{escape_xml(para.replace('\\n', '<br>'))}</p>"
+                        # Выносим replace за пределы f-string, так как нельзя использовать \ в f-string выражениях
+                        para_processed = para.replace('\\n', '<br>')
+                        content_html += f"<p>{escape_xml(para_processed)}</p>"
             
             # Добавляем пример кода, если есть
             if code_example:
