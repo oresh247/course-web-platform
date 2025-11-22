@@ -564,6 +564,7 @@ class CourseDatabase:
         Returns:
             Словарь с информацией о видео или None
         """
+        logger.debug(f"Запрос видео информации для курса {course_id}, модуль {module_number}, урок {lesson_index}")
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -580,14 +581,23 @@ class CourseDatabase:
                 # sqlite3.Row не имеет метода .get(), используем индексацию
                 video_id = row['video_id'] if 'video_id' in row.keys() else None
                 video_download_url = row['video_download_url'] if 'video_download_url' in row.keys() else None
+                video_status = row['video_status'] if 'video_status' in row.keys() else None
+                
+                logger.debug(f"Найдена запись в БД: video_id={video_id}, has_url={bool(video_download_url)}, status={video_status}")
                 
                 if video_id or video_download_url:
-                    return {
+                    result = {
                         'video_id': video_id,
                         'video_download_url': video_download_url,
-                        'video_status': row['video_status'] if 'video_status' in row.keys() else None,
+                        'video_status': video_status,
                         'video_generated_at': row['video_generated_at'] if 'video_generated_at' in row.keys() else None
                     }
+                    logger.debug(f"Возвращаем информацию о видео: {result}")
+                    return result
+                else:
+                    logger.debug(f"Запись найдена, но video_id и video_download_url пустые")
+            else:
+                logger.debug(f"Запись не найдена в БД для курса {course_id}, модуль {module_number}, урок {lesson_index}")
             
             return None
 

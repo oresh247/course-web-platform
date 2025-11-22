@@ -594,55 +594,77 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                 # Проверяем наличие видео
                 video_filename = None
                 if include_videos:
-                    video_info = {}
-                    if content_data:
-                        video_info = content_data.get('video_info', {})
+                    logger.info(f"🔍 Проверка видео для урока {module.module_number}_{lesson_idx} (курс {course_id})")
                     
-                    # Если video_info пустой, пытаемся получить информацию о видео напрямую из базы
-                    if not video_info or not (video_info.get('video_id') or video_info.get('video_download_url')):
-                        # Пытаемся получить информацию о видео напрямую из базы данных
-                        try:
-                            video_info_from_db = db.get_lesson_video_info(course_id, module.module_number, lesson_idx)
-                            if video_info_from_db:
-                                video_info = video_info_from_db
-                                logger.info(f"Видео информация получена напрямую из БД для урока {module.module_number}_{lesson_idx}")
-                        except Exception as e:
-                            logger.warning(f"Не удалось получить информацию о видео из БД для урока {module.module_number}_{lesson_idx}: {e}")
-                    
-                    video_url = video_info.get('video_download_url') if video_info else None
-                    video_status = video_info.get('video_status') if video_info else None
-                    video_id = video_info.get('video_id') if video_info else None
-                    
-                    logger.info(f"Проверка видео для урока {module.module_number}_{lesson_idx}: "
-                              f"video_id={video_id}, status={video_status}, has_url={bool(video_url)}")
-                    
-                    if not video_url or not video_url.strip():
-                        logger.warning(f"Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой (video_id={video_id})")
-                    elif video_status is not None and video_status not in ['completed', 'ready', 'done', 'success']:
-                        # Если статус указан и он не подходит, пропускаем
-                        logger.warning(f"Для урока {module.module_number}_{lesson_idx} статус видео '{video_status}' не подходит для скачивания (ожидается: completed/ready/done/success или None)")
-                    else:
-                        # Если есть video_url и статус подходящий (или не указан), скачиваем
-                        # Скачиваем видео
-                        logger.info(f"Начинаем скачивание видео для урока {module.module_number}_{lesson_idx} из {video_url}")
-                        video_data = download_video(video_url)
-                        if video_data:
-                            # Определяем расширение файла
-                            video_ext = 'mp4'  # По умолчанию MP4
-                            if '.mp4' in video_url.lower():
-                                video_ext = 'mp4'
-                            elif '.webm' in video_url.lower():
-                                video_ext = 'webm'
-                            
-                            video_filename = f"lesson_{module.module_number}_{lesson_idx}.{video_ext}"
-                            video_path = f"videos/{video_filename}"
-                            
-                            # Сохраняем видео в ZIP
-                            zip_file.writestr(video_path, video_data)
-                            video_files[f"{module.module_number}_{lesson_idx}"] = video_filename
-                            logger.info(f"✅ Видео успешно добавлено в пакет: {video_path} (размер: {len(video_data)} байт)")
+                    # ВСЕГДА пытаемся получить информацию о видео напрямую из базы данных
+                    # Это гарантирует, что мы получим актуальную информацию, даже если content_data устарел
+                    video_info = None
+                    try:
+                        video_info_from_db = db.get_lesson_video_info(course_id, module.module_number, lesson_idx)
+                        if video_info_from_db:
+                            video_info = video_info_from_db
+                            logger.info(f"✅ Видео информация получена из БД для урока {module.module_number}_{lesson_idx}: {video_info}")
                         else:
-                            logger.error(f"❌ Не удалось скачать видео для урока {module.module_number}_{lesson_idx} из {video_url}")
+                            logger.warning(f"⚠️ Видео информация не найдена в БД для урока {module.module_number}_{lesson_idx}")
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка получения видео из БД для урока {module.module_number}_{lesson_idx}: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                    
+                    # Если не получили из БД, пробуем из content_data
+                    if not video_info and content_data:
+                        video_info = content_data.get('video_info', {})
+                        if video_info:
+                            logger.info(f"✅ Видео информация получена из content_data для урока {module.module_number}_{lesson_idx}")
+                    
+                    if not video_info:
+                        logger.warning(f"⚠️ Видео информация отсутствует для урока {module.module_number}_{lesson_idx}")
+                    else:
+                        video_url = video_info.get('video_download_url') if video_info else None
+                        video_status = video_info.get('video_status') if video_info else None
+                        video_id = video_info.get('video_id') if video_info else None
+                        
+                        logger.info(f"📊 Информация о видео для урока {module.module_number}_{lesson_idx}: "
+                                  f"video_id={video_id}, status={video_status}, "
+                                  f"has_url={bool(video_url)}, url_length={len(video_url) if video_url else 0}")
+                        
+                        # Проверяем наличие URL
+                        if not video_url or not video_url.strip():
+                            logger.warning(f"❌ Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой (video_id={video_id}, status={video_status})")
+                        else:
+                            # Проверяем статус (принимаем None, completed, ready, done, success, и другие "готовые" статусы)
+                            valid_statuses = ['completed', 'ready', 'done', 'success', 'finished', 'available']
+                            if video_status is not None and video_status.lower() not in [s.lower() for s in valid_statuses]:
+                                # Если статус указан и он не подходит, пропускаем
+                                logger.warning(f"⚠️ Для урока {module.module_number}_{lesson_idx} статус видео '{video_status}' не подходит для скачивания "
+                                             f"(ожидается: {', '.join(valid_statuses)} или None). Видео будет пропущено.")
+                            else:
+                                # Если есть video_url и статус подходящий (или не указан), скачиваем
+                                logger.info(f"📥 Начинаем скачивание видео для урока {module.module_number}_{lesson_idx} из {video_url[:100]}...")
+                                video_data = download_video(video_url)
+                                if video_data:
+                                    # Определяем расширение файла
+                                    video_ext = 'mp4'  # По умолчанию MP4
+                                    if '.mp4' in video_url.lower():
+                                        video_ext = 'mp4'
+                                    elif '.webm' in video_url.lower():
+                                        video_ext = 'webm'
+                                    
+                                    video_filename = f"lesson_{module.module_number}_{lesson_idx}.{video_ext}"
+                                    video_path = f"videos/{video_filename}"
+                                    
+                                    # Сохраняем видео в ZIP
+                                    zip_file.writestr(video_path, video_data)
+                                    video_files[f"{module.module_number}_{lesson_idx}"] = video_filename
+                                    logger.info(f"✅ Видео успешно добавлено в пакет: {video_path} (размер: {len(video_data)} байт, {len(video_data) / 1024 / 1024:.2f} MB)")
+                                else:
+                                    logger.error(f"❌ Не удалось скачать видео для урока {module.module_number}_{lesson_idx} из {video_url[:100]}...")
+                    
+                    # Итоговая статистика для урока
+                    if video_filename:
+                        logger.info(f"✅ Урок {module.module_number}_{lesson_idx}: видео включено в пакет")
+                    else:
+                        logger.warning(f"⚠️ Урок {module.module_number}_{lesson_idx}: видео НЕ включено в пакет")
                 
                 # Создаем HTML для урока
                 lesson_html = create_lesson_html(
@@ -659,7 +681,16 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                 lesson_path = f"lessons/lesson_{module.module_number}_{lesson_idx}.html"
                 zip_file.writestr(lesson_path, lesson_html.encode('utf-8'))
         
-        # 4. Добавляем стартовую страницу курса
+        # 4. Логируем итоговую статистику по видео
+        logger.info(f"📊 Итоговая статистика SCORM экспорта для курса {course_id}:")
+        logger.info(f"   Всего уроков: {sum(len(m.lessons) for m in course.modules)}")
+        logger.info(f"   Уроков с видео в пакете: {len(video_files)}")
+        if video_files:
+            logger.info(f"   Видео файлы: {list(video_files.values())}")
+        else:
+            logger.warning(f"   ⚠️ Видео файлы отсутствуют в пакете!")
+        
+        # 5. Добавляем стартовую страницу курса
         start_page = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>

@@ -596,6 +596,7 @@ class RenderDatabase:
             Словарь с информацией о видео или None
         """
         try:
+            logger.debug(f"Запрос видео информации для курса {course_id}, модуль {module_number}, урок {lesson_index}")
             with self._get_connection() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     cursor.execute("""
@@ -606,18 +607,33 @@ class RenderDatabase:
                     
                     row = cursor.fetchone()
                     
-                    if row and (row.get('video_id') or row.get('video_download_url')):
-                        return {
-                            'video_id': row.get('video_id'),
-                            'video_download_url': row.get('video_download_url'),
-                            'video_status': row.get('video_status'),
-                            'video_generated_at': row.get('video_generated_at').isoformat() if row.get('video_generated_at') else None
-                        }
+                    if row:
+                        video_id = row.get('video_id')
+                        video_download_url = row.get('video_download_url')
+                        video_status = row.get('video_status')
+                        
+                        logger.debug(f"Найдена запись в БД: video_id={video_id}, has_url={bool(video_download_url)}, status={video_status}")
+                        
+                        if video_id or video_download_url:
+                            result = {
+                                'video_id': video_id,
+                                'video_download_url': video_download_url,
+                                'video_status': video_status,
+                                'video_generated_at': row.get('video_generated_at').isoformat() if row.get('video_generated_at') else None
+                            }
+                            logger.debug(f"Возвращаем информацию о видео: {result}")
+                            return result
+                        else:
+                            logger.debug(f"Запись найдена, но video_id и video_download_url пустые")
+                    else:
+                        logger.debug(f"Запись не найдена в БД для курса {course_id}, модуль {module_number}, урок {lesson_index}")
                     
                     return None
                     
         except psycopg2.Error as e:
-            logger.error(f"Ошибка получения информации о видео урока: {e}")
+            logger.error(f"Ошибка получения информации о видео для курса {course_id}, модуль {module_number}, урок {lesson_index}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
     def delete_lesson_content(self, course_id: int, module_number: int, lesson_index: int) -> int:
