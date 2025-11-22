@@ -26,6 +26,14 @@ from backend.database import db
 
 logger = logging.getLogger(__name__)
 
+# Импортируем HeyGen сервис для получения URL видео, если его нет в БД
+try:
+    from backend.services.heygen_service import HeyGenService
+    heygen_service = None  # Будет инициализирован при необходимости
+except ImportError:
+    logger.warning("HeyGenService не доступен, получение URL из API будет пропущено")
+    heygen_service = None
+
 
 def escape_xml(text: str) -> str:
     """Экранирует XML специальные символы"""
@@ -630,7 +638,80 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                         
                         # Проверяем наличие URL
                         if not video_url or not video_url.strip():
-                            logger.warning(f"❌ Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой (video_id={video_id}, status={video_status})")
+                            # Если нет URL, но есть video_id, пытаемся получить URL из HeyGen API
+                            if video_id:
+                                logger.info(f"🔄 Для урока {module.module_number}_{lesson_idx} нет video_download_url, но есть video_id={video_id}. "
+                                          f"Пытаемся получить URL из HeyGen API...")
+                                try:
+                                    # Инициализируем HeyGen сервис при необходимости
+                                    global heygen_service
+                                    if heygen_service is None:
+                                        try:
+                                            from backend.services.heygen_service import HeyGenService
+                                            heygen_service = HeyGenService()
+                                            logger.info("HeyGen сервис инициализирован для получения URL видео")
+                                        except (ValueError, ImportError) as e:
+                                            logger.warning(f"⚠️ Не удалось инициализировать HeyGen сервис (возможно, нет API ключа): {e}")
+                                            heygen_service = False  # Помечаем, что сервис недоступен
+                                    
+                                    # Пытаемся получить URL из API, если сервис доступен
+                                    if heygen_service and heygen_service is not False:
+                                        # Сначала проверяем статус и получаем download_url напрямую
+                                        try:
+                                            video_status_info = heygen_service.get_video_status(video_id)
+                                            api_url = video_status_info.get('download_url') if video_status_info else None
+                                            api_status = video_status_info.get('status') if video_status_info else None
+                                            
+                                            logger.info(f"📊 Статус видео из HeyGen API для video_id={video_id}: status={api_status}, has_download_url={bool(api_url)}")
+                                            
+                                            if api_url:
+                                                video_url = api_url
+                                                logger.info(f"✅ Получен video_download_url из HeyGen API для урока {module.module_number}_{lesson_idx}: {api_url[:100]}...")
+                                                
+                                                # Обновляем URL и статус в базе данных для будущих запросов
+                                                try:
+                                                    db.update_lesson_video_info(
+                                                        course_id=course_id,
+                                                        module_number=module.module_number,
+                                                        lesson_index=lesson_idx,
+                                                        video_download_url=api_url,
+                                                        video_status=api_status if api_status else video_status
+                                                    )
+                                                    logger.info(f"✅ Обновлен video_download_url и статус в БД для урока {module.module_number}_{lesson_idx}")
+                                                except Exception as e:
+                                                    logger.warning(f"⚠️ Не удалось обновить video_download_url в БД: {e}")
+                                            elif api_status == 'completed':
+                                                # Если статус completed, но нет URL, используем fallback URL от HeyGen
+                                                fallback_url = f"https://resource2.heygen.ai/video/transcode/{video_id}/1280x720.mp4"
+                                                video_url = fallback_url
+                                                logger.info(f"✅ Используем fallback URL для готового видео (статус=completed): {fallback_url[:100]}...")
+                                                
+                                                # Обновляем URL в базе данных
+                                                try:
+                                                    db.update_lesson_video_info(
+                                                        course_id=course_id,
+                                                        module_number=module.module_number,
+                                                        lesson_index=lesson_idx,
+                                                        video_download_url=fallback_url,
+                                                        video_status='completed'
+                                                    )
+                                                    logger.info(f"✅ Обновлен video_download_url (fallback) в БД для урока {module.module_number}_{lesson_idx}")
+                                                except Exception as e:
+                                                    logger.warning(f"⚠️ Не удалось обновить video_download_url в БД: {e}")
+                                            else:
+                                                logger.warning(f"⚠️ HeyGen API не вернул download_url для video_id={video_id} (статус: {api_status})")
+                                        except Exception as e:
+                                            logger.warning(f"⚠️ Ошибка при получении статуса видео из HeyGen API для video_id={video_id}: {e}")
+                                    else:
+                                        logger.debug(f"HeyGen сервис недоступен, пропускаем получение URL из API")
+                                except Exception as e:
+                                    logger.warning(f"⚠️ Ошибка при получении URL из HeyGen API для video_id={video_id}: {e}")
+                                    import traceback
+                                    logger.debug(traceback.format_exc())
+                            
+                            if not video_url or not video_url.strip():
+                                logger.warning(f"❌ Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой "
+                                             f"(video_id={video_id}, status={video_status}). Видео будет пропущено.")
                         else:
                             # ВАЖНО: Если есть video_download_url, пытаемся скачать видео
                             # Статус может быть устаревшим (например, generating), но видео уже готово
