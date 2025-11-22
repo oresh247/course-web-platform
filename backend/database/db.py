@@ -531,12 +531,16 @@ class CourseDatabase:
                 content_data = json.loads(row['content_data'])
                 
                 # Добавляем информацию о видео, если она есть (проверяем video_id или video_download_url)
-                if row.get('video_id') or row.get('video_download_url'):
+                # sqlite3.Row не имеет метода .get(), используем индексацию
+                video_id = row['video_id'] if 'video_id' in row.keys() else None
+                video_download_url = row['video_download_url'] if 'video_download_url' in row.keys() else None
+                
+                if video_id or video_download_url:
                     content_data['video_info'] = {
-                        'video_id': row.get('video_id'),
-                        'video_download_url': row.get('video_download_url'),
-                        'video_status': row.get('video_status'),
-                        'video_generated_at': row.get('video_generated_at')
+                        'video_id': video_id,
+                        'video_download_url': video_download_url,
+                        'video_status': row['video_status'] if 'video_status' in row.keys() else None,
+                        'video_generated_at': row['video_generated_at'] if 'video_generated_at' in row.keys() else None
                     }
                 
                 return content_data
@@ -572,13 +576,18 @@ class CourseDatabase:
             
             row = cursor.fetchone()
             
-            if row and (row.get('video_id') or row.get('video_download_url')):
-                return {
-                    'video_id': row.get('video_id'),
-                    'video_download_url': row.get('video_download_url'),
-                    'video_status': row.get('video_status'),
-                    'video_generated_at': row.get('video_generated_at')
-                }
+            if row:
+                # sqlite3.Row не имеет метода .get(), используем индексацию
+                video_id = row['video_id'] if 'video_id' in row.keys() else None
+                video_download_url = row['video_download_url'] if 'video_download_url' in row.keys() else None
+                
+                if video_id or video_download_url:
+                    return {
+                        'video_id': video_id,
+                        'video_download_url': video_download_url,
+                        'video_status': row['video_status'] if 'video_status' in row.keys() else None,
+                        'video_generated_at': row['video_generated_at'] if 'video_generated_at' in row.keys() else None
+                    }
             
             return None
 

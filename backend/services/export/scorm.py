@@ -618,7 +618,7 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                     
                     if not video_url or not video_url.strip():
                         logger.warning(f"Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой (video_id={video_id})")
-                    elif video_status and video_status not in ['completed', 'ready', 'done', 'success']:
+                    elif video_status is not None and video_status not in ['completed', 'ready', 'done', 'success']:
                         # Если статус указан и он не подходит, пропускаем
                         logger.warning(f"Для урока {module.module_number}_{lesson_idx} статус видео '{video_status}' не подходит для скачивания (ожидается: completed/ready/done/success или None)")
                     else:

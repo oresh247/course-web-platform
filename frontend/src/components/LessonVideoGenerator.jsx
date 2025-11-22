@@ -143,9 +143,19 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       loadLessonContent();
       loadVideoInfoFromDB();
       
-      // Инициализируем скрипт, если он еще не установлен
+      // Инициализируем скрипт из плана контента урока, если он еще не установлен
       if (!videoScript) {
-        setVideoScript(lesson.content || lesson.lesson_content || 'Содержание урока');
+        // Используем план контента (content_outline) как основной источник для скрипта
+        const scriptFromOutline = lesson.content_outline && Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0
+          ? lesson.content_outline.join('. ')
+          : null;
+        
+        if (scriptFromOutline) {
+          setVideoScript(scriptFromOutline);
+        } else {
+          // Fallback на другие источники
+          setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
+        }
       }
       
       // Проверяем кэшированное видео для этого урока
@@ -260,11 +270,14 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         setLessonContent(cachedContent);
         setIsContentFromCache(true);
         
-        // Устанавливаем начальный скрипт из целей обучения
-        if (cachedContent.learning_objectives && Array.isArray(cachedContent.learning_objectives)) {
+        // Устанавливаем начальный скрипт из плана контента урока
+        if (lesson.content_outline && Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
+          setVideoScript(lesson.content_outline.join('. '));
+        } else if (cachedContent.learning_objectives && Array.isArray(cachedContent.learning_objectives)) {
+          // Fallback на цели обучения, если план контента недоступен
           setVideoScript(cachedContent.learning_objectives.join('. ') + '.');
         } else {
-          setVideoScript(lesson.content || lesson.lesson_content || 'Содержание урока');
+          setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
         }
         return;
       }
@@ -283,11 +296,14 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
         // Сохраняем в кэш
         setCachedLessonContent(courseId, moduleNumber, lessonIndex, response.lesson_content);
         
-        // Устанавливаем начальный скрипт из целей обучения
-        if (response.lesson_content.learning_objectives && Array.isArray(response.lesson_content.learning_objectives)) {
+        // Устанавливаем начальный скрипт из плана контента урока
+        if (lesson.content_outline && Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
+          setVideoScript(lesson.content_outline.join('. '));
+        } else if (response.lesson_content.learning_objectives && Array.isArray(response.lesson_content.learning_objectives)) {
+          // Fallback на цели обучения, если план контента недоступен
           setVideoScript(response.lesson_content.learning_objectives.join('. ') + '.');
         } else {
-          setVideoScript(lesson.content || lesson.lesson_content || 'Содержание урока');
+          setVideoScript(lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока');
         }
       } else {
         setLessonContentError('Контент урока не найден');
@@ -300,13 +316,19 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       if (error.response?.status === 404) {
         setLessonContentError('Контент урока не сгенерирован. Используется базовый контент.');
         
-        // Инициализируем videoScript из базового контента урока
+        // Инициализируем videoScript из плана контента урока
         if (!videoScript) {
-          const fallbackContent = lesson.content || 
-            lesson.content_outline?.join('. ') || 
-            lesson.lesson_title || 
-            'Содержание урока';
-          setVideoScript(fallbackContent);
+          // Приоритет: план контента (content_outline)
+          if (lesson.content_outline && Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
+            setVideoScript(lesson.content_outline.join('. '));
+          } else {
+            // Fallback на другие источники
+            const fallbackContent = lesson.content || 
+              lesson.lesson_goal || 
+              lesson.lesson_title || 
+              'Содержание урока';
+            setVideoScript(fallbackContent);
+          }
         }
       } else {
         setLessonContentError(error.message || 'Не удалось загрузить контент урока');
@@ -322,13 +344,18 @@ const LessonVideoGenerator = ({ lesson, courseId, moduleNumber, lessonIndex, onV
       return String(videoScript.trim());
     }
     
+    // Приоритет: план контента урока (content_outline)
+    if (lesson.content_outline && Array.isArray(lesson.content_outline) && lesson.content_outline.length > 0) {
+      return String(lesson.content_outline.join('. '));
+    }
+    
     // Fallback на цели обучения из детального контента
     if (lessonContent && lessonContent.learning_objectives && Array.isArray(lessonContent.learning_objectives)) {
       return String(lessonContent.learning_objectives.join('. ') + '.');
     }
     
-    // Fallback на обычное содержимое урока
-    const content = lesson.content || lesson.lesson_content || 'Содержание урока';
+    // Fallback на другие источники
+    const content = lesson.content || lesson.lesson_content || lesson.lesson_goal || 'Содержание урока';
     return String(content);
   };
 
