@@ -593,13 +593,38 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                 
                 # Проверяем наличие видео
                 video_filename = None
-                if include_videos and content_data:
-                    video_info = content_data.get('video_info', {})
-                    video_url = video_info.get('video_download_url')
-                    video_status = video_info.get('video_status')
+                if include_videos:
+                    video_info = {}
+                    if content_data:
+                        video_info = content_data.get('video_info', {})
                     
-                    if video_url and video_status == 'completed':
+                    # Если video_info пустой, пытаемся получить информацию о видео напрямую из базы
+                    if not video_info or not (video_info.get('video_id') or video_info.get('video_download_url')):
+                        # Пытаемся получить информацию о видео напрямую из базы данных
+                        try:
+                            video_info_from_db = db.get_lesson_video_info(course_id, module.module_number, lesson_idx)
+                            if video_info_from_db:
+                                video_info = video_info_from_db
+                                logger.info(f"Видео информация получена напрямую из БД для урока {module.module_number}_{lesson_idx}")
+                        except Exception as e:
+                            logger.warning(f"Не удалось получить информацию о видео из БД для урока {module.module_number}_{lesson_idx}: {e}")
+                    
+                    video_url = video_info.get('video_download_url') if video_info else None
+                    video_status = video_info.get('video_status') if video_info else None
+                    video_id = video_info.get('video_id') if video_info else None
+                    
+                    logger.info(f"Проверка видео для урока {module.module_number}_{lesson_idx}: "
+                              f"video_id={video_id}, status={video_status}, has_url={bool(video_url)}")
+                    
+                    if not video_url or not video_url.strip():
+                        logger.warning(f"Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой (video_id={video_id})")
+                    elif video_status and video_status not in ['completed', 'ready', 'done', 'success']:
+                        # Если статус указан и он не подходит, пропускаем
+                        logger.warning(f"Для урока {module.module_number}_{lesson_idx} статус видео '{video_status}' не подходит для скачивания (ожидается: completed/ready/done/success или None)")
+                    else:
+                        # Если есть video_url и статус подходящий (или не указан), скачиваем
                         # Скачиваем видео
+                        logger.info(f"Начинаем скачивание видео для урока {module.module_number}_{lesson_idx} из {video_url}")
                         video_data = download_video(video_url)
                         if video_data:
                             # Определяем расширение файла
@@ -615,7 +640,9 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                             # Сохраняем видео в ZIP
                             zip_file.writestr(video_path, video_data)
                             video_files[f"{module.module_number}_{lesson_idx}"] = video_filename
-                            logger.info(f"Видео добавлено в пакет: {video_path}")
+                            logger.info(f"✅ Видео успешно добавлено в пакет: {video_path} (размер: {len(video_data)} байт)")
+                        else:
+                            logger.error(f"❌ Не удалось скачать видео для урока {module.module_number}_{lesson_idx} из {video_url}")
                 
                 # Создаем HTML для урока
                 lesson_html = create_lesson_html(

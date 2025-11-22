@@ -530,16 +530,55 @@ class CourseDatabase:
             if row:
                 content_data = json.loads(row['content_data'])
                 
-                # Добавляем информацию о видео, если она есть
-                if row.get('video_id'):
+                # Добавляем информацию о видео, если она есть (проверяем video_id или video_download_url)
+                if row.get('video_id') or row.get('video_download_url'):
                     content_data['video_info'] = {
-                        'video_id': row['video_id'],
+                        'video_id': row.get('video_id'),
                         'video_download_url': row.get('video_download_url'),
                         'video_status': row.get('video_status'),
                         'video_generated_at': row.get('video_generated_at')
                     }
                 
                 return content_data
+            
+            return None
+    
+    def get_lesson_video_info(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Получить информацию о видео для урока
+        
+        Args:
+            course_id: ID курса
+            module_number: Номер модуля
+            lesson_index: Индекс урока
+            
+        Returns:
+            Словарь с информацией о видео или None
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT video_id, video_download_url, video_status, video_generated_at
+                FROM lesson_contents
+                WHERE course_id = ? AND module_number = ? AND lesson_index = ?
+            """, (course_id, module_number, lesson_index))
+            
+            row = cursor.fetchone()
+            
+            if row and (row.get('video_id') or row.get('video_download_url')):
+                return {
+                    'video_id': row.get('video_id'),
+                    'video_download_url': row.get('video_download_url'),
+                    'video_status': row.get('video_status'),
+                    'video_generated_at': row.get('video_generated_at')
+                }
             
             return None
 

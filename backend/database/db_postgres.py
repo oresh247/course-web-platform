@@ -561,10 +561,10 @@ class RenderDatabase:
                             import json
                             content_data = json.loads(content_data)
                         
-                        # Добавляем информацию о видео, если она есть
-                        if row.get('video_id'):
+                        # Добавляем информацию о видео, если она есть (проверяем video_id или video_download_url)
+                        if row.get('video_id') or row.get('video_download_url'):
                             content_data['video_info'] = {
-                                'video_id': row['video_id'],
+                                'video_id': row.get('video_id'),
                                 'video_download_url': row.get('video_download_url'),
                                 'video_status': row.get('video_status'),
                                 'video_generated_at': row.get('video_generated_at').isoformat() if row.get('video_generated_at') else None
@@ -577,6 +577,48 @@ class RenderDatabase:
         except psycopg2.Error as e:
             logger.error(f"Ошибка получения контента урока: {e}")
             raise
+    
+    def get_lesson_video_info(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Получить информацию о видео для урока
+        
+        Args:
+            course_id: ID курса
+            module_number: Номер модуля
+            lesson_index: Индекс урока
+            
+        Returns:
+            Словарь с информацией о видео или None
+        """
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT video_id, video_download_url, video_status, video_generated_at
+                        FROM lesson_contents
+                        WHERE course_id = %s AND module_number = %s AND lesson_index = %s
+                    """, (course_id, module_number, lesson_index))
+                    
+                    row = cursor.fetchone()
+                    
+                    if row and (row.get('video_id') or row.get('video_download_url')):
+                        return {
+                            'video_id': row.get('video_id'),
+                            'video_download_url': row.get('video_download_url'),
+                            'video_status': row.get('video_status'),
+                            'video_generated_at': row.get('video_generated_at').isoformat() if row.get('video_generated_at') else None
+                        }
+                    
+                    return None
+                    
+        except psycopg2.Error as e:
+            logger.error(f"Ошибка получения информации о видео урока: {e}")
+            return None
 
     def delete_lesson_content(self, course_id: int, module_number: int, lesson_index: int) -> int:
         """Удалить запись детального контента одного урока."""
