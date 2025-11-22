@@ -632,15 +632,19 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                         if not video_url or not video_url.strip():
                             logger.warning(f"❌ Для урока {module.module_number}_{lesson_idx} нет video_download_url или он пустой (video_id={video_id}, status={video_status})")
                         else:
-                            # Проверяем статус (принимаем None, completed, ready, done, success, и другие "готовые" статусы)
-                            valid_statuses = ['completed', 'ready', 'done', 'success', 'finished', 'available']
-                            if video_status is not None and video_status.lower() not in [s.lower() for s in valid_statuses]:
-                                # Если статус указан и он не подходит, пропускаем
-                                logger.warning(f"⚠️ Для урока {module.module_number}_{lesson_idx} статус видео '{video_status}' не подходит для скачивания "
-                                             f"(ожидается: {', '.join(valid_statuses)} или None). Видео будет пропущено.")
+                            # ВАЖНО: Если есть video_download_url, пытаемся скачать видео
+                            # Статус может быть устаревшим (например, generating), но видео уже готово
+                            # Исключаем только явно failed статусы
+                            failed_statuses = ['failed', 'error', 'cancelled', 'timeout']
+                            
+                            if video_status and video_status.lower() in [s.lower() for s in failed_statuses]:
+                                # Если статус явно указывает на ошибку, пропускаем
+                                logger.warning(f"⚠️ Для урока {module.module_number}_{lesson_idx} статус видео '{video_status}' указывает на ошибку. Видео будет пропущено.")
                             else:
-                                # Если есть video_url и статус подходящий (или не указан), скачиваем
-                                logger.info(f"📥 Начинаем скачивание видео для урока {module.module_number}_{lesson_idx} из {video_url[:100]}...")
+                                # Если есть video_url и статус не failed, пытаемся скачать
+                                # Это включает случаи, когда статус = 'generating', но видео уже готово
+                                logger.info(f"📥 Начинаем скачивание видео для урока {module.module_number}_{lesson_idx} "
+                                          f"(status={video_status}, video_id={video_id}) из {video_url[:100]}...")
                                 video_data = download_video(video_url)
                                 if video_data:
                                     # Определяем расширение файла
@@ -656,9 +660,12 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                                     # Сохраняем видео в ZIP
                                     zip_file.writestr(video_path, video_data)
                                     video_files[f"{module.module_number}_{lesson_idx}"] = video_filename
-                                    logger.info(f"✅ Видео успешно добавлено в пакет: {video_path} (размер: {len(video_data)} байт, {len(video_data) / 1024 / 1024:.2f} MB)")
+                                    logger.info(f"✅ Видео успешно добавлено в пакет: {video_path} "
+                                              f"(размер: {len(video_data)} байт, {len(video_data) / 1024 / 1024:.2f} MB, "
+                                              f"статус был: {video_status})")
                                 else:
-                                    logger.error(f"❌ Не удалось скачать видео для урока {module.module_number}_{lesson_idx} из {video_url[:100]}...")
+                                    logger.error(f"❌ Не удалось скачать видео для урока {module.module_number}_{lesson_idx} из {video_url[:100]}... "
+                                               f"(статус: {video_status}, video_id: {video_id})")
                     
                     # Итоговая статистика для урока
                     if video_filename:
