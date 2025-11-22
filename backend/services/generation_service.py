@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List
 
 from backend.ai.openai_client import OpenAIClient
 from backend.ai.interfaces import AIChatClient
+from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class GenerationService:
                 user_prompt=prompt,
                 model="gpt-4",
                 temperature=0.7,
-                max_tokens=200
+                max_tokens=settings.OPENAI_MAX_TOKENS_SHORT_MIN
             )
             logger.info(f"✅ Цель модуля регенерирована: {new_goal[:50]}...")
             return new_goal
@@ -86,7 +87,7 @@ class GenerationService:
                 user_prompt=prompt,
                 model="gpt-4",
                 temperature=0.7,
-                max_tokens=500
+                max_tokens=settings.OPENAI_MAX_TOKENS_SHORT_MAX
             )
             
             # Парсим ответ в список

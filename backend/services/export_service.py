@@ -27,6 +27,9 @@ from backend.services.export.pptx import (
     export_module_pptx as _export_module_pptx,
     export_lesson_pptx as _export_lesson_pptx,
 )
+from backend.services.export.scorm import (
+    export_course_scorm as _export_course_scorm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,11 @@ class ExportService:
     def export_course_pptx(course: Course) -> bytes:
         """Генерирует PPTX (презентацию) для курса"""
         return _export_course_pptx(course)
+    
+    @staticmethod
+    def export_course_scorm(course: Course, course_id: int, include_videos: bool = False) -> bytes:
+        """Генерирует SCORM 1.2 пакет (ZIP архив) для курса"""
+        return _export_course_scorm(course, course_id, include_videos)
     
     # ========== ЭКСПОРТ МОДУЛЯ (ДЕТАЛЬНЫЙ КОНТЕНТ) ==========
     

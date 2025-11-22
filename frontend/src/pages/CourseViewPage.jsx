@@ -57,6 +57,7 @@ function CourseViewPage() {
   const duplicateLessonAbortRef = useRef(null)
   const [duplicateLessonModal, setDuplicateLessonModal] = useState({ visible: false, module: null, lessonIndex: null })
   const [duplicateLessonForm] = Form.useForm()
+  const [editLessonForm] = Form.useForm()
   const [regenerating, setRegenerating] = useState(false)
   const [detailContentModal, setDetailContentModal] = useState({ visible: false, moduleNumber: null, content: null })
   const [loadingContent, setLoadingContent] = useState(false)
@@ -160,11 +161,49 @@ function CourseViewPage() {
       message.error('Неверный ID курса')
       return
     }
+    
+    // Для SCORM формата спрашиваем о включении видео
+    if (format === 'scorm') {
+      Modal.confirm({
+        title: 'Экспорт в SCORM',
+        content: (
+          <div>
+            <p>Включить видеоматериалы в SCORM пакет?</p>
+            <p style={{ fontSize: '12px', color: '#666', marginTop: '8px' }}>
+              Видео будут скачаны и включены в пакет. Это увеличит размер файла и время экспорта.
+            </p>
+          </div>
+        ),
+        okText: 'Да, включить видео',
+        cancelText: 'Нет, без видео',
+        onOk: () => {
+          performExport(format, true)
+        },
+        onCancel: () => {
+          performExport(format, false)
+        }
+      })
+    } else {
+      performExport(format, false)
+    }
+  }
+  
+  const performExport = (format, includeVideos) => {
+    if (!id || id === 'null' || id === 'undefined') {
+      message.error('Неверный ID курса')
+      return
+    }
     const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
     const courseId = parseInt(id, 10)
-    const url = `${baseUrl}/api/courses/${courseId}/export/${format}`
+    let url = `${baseUrl}/api/courses/${courseId}/export/${format}`
+    
+    // Добавляем параметр include_videos для SCORM
+    if (format === 'scorm' && includeVideos) {
+      url += '?include_videos=true'
+    }
+    
     window.open(url, '_blank')
-    message.success(`Экспорт в формате ${format.toUpperCase()} начат`)
+    message.success(`Экспорт в формате ${format.toUpperCase()} начат${includeVideos ? ' (с видео)' : ''}`)
   }
 
   const handleEditClick = () => {
@@ -520,7 +559,7 @@ function CourseViewPage() {
     </Modal>
   )
 
-  const handleRegenerateLessonContent = async (moduleNumber, lessonIndex) => {
+  const handleRegenerateLessonContent = async (moduleNumber, lessonIndex, formInstance = null) => {
     setRegenerating(true)
     try {
       const courseId = parseInt(id, 10)
@@ -528,7 +567,27 @@ function CourseViewPage() {
         message.error('Неверный ID курса')
         return
       }
-      const response = await coursesApi.regenerateLessonContent(courseId, moduleNumber, lessonIndex)
+      
+      // Получаем актуальные значения из формы, если она передана
+      let lessonTitle = null
+      let lessonGoal = null
+      if (formInstance) {
+        try {
+          const formValues = await formInstance.validateFields(['lesson_title', 'lesson_goal'])
+          lessonTitle = formValues.lesson_title
+          lessonGoal = formValues.lesson_goal
+        } catch (e) {
+          // Если валидация не прошла, используем значения из базы данных
+          console.warn('Не удалось получить значения из формы, используем значения из базы данных')
+        }
+      }
+      
+      const response = await coursesApi.regenerateLessonContent(
+        courseId, 
+        moduleNumber, 
+        lessonIndex,
+        lessonTitle ? { lesson_title: lessonTitle, lesson_goal: lessonGoal } : null
+      )
       message.success('План контента регенерирован!')
       loadCourse()
       
@@ -536,8 +595,21 @@ function CourseViewPage() {
       if (editLessonModal.visible) {
         setEditLessonModal(prev => ({
           ...prev,
-          lesson: { ...prev.lesson, content_outline: response.new_content_outline }
+          lesson: { 
+            ...prev.lesson, 
+            content_outline: response.new_content_outline,
+            lesson_title: lessonTitle || prev.lesson.lesson_title,
+            lesson_goal: lessonGoal || prev.lesson.lesson_goal
+          }
         }))
+        // Обновляем форму с новым планом контента
+        if (formInstance) {
+          formInstance.setFieldsValue({
+            content_outline: Array.isArray(response.new_content_outline) 
+              ? response.new_content_outline.join('\n')
+              : response.new_content_outline
+          })
+        }
       }
     } catch (error) {
       console.error('Error regenerating lesson content:', error)
@@ -592,7 +664,12 @@ function CourseViewPage() {
       }
       const response = await coursesApi.generateLessonDetailedContent(courseId, moduleNumber, lessonIndex)
       message.success('Детальный контент урока успешно сгенерирован!')
-      setContentRefreshKey((prev) => prev + 1)
+      
+      // Обновляем ключ для обновления проверки наличия контента
+      // Используем setTimeout, чтобы дать время серверу сохранить контент
+      setTimeout(() => {
+        setContentRefreshKey((prev) => prev + 1)
+      }, 500)
       
       Modal.info({
         title: 'Контент урока сгенерирован',
@@ -649,6 +726,14 @@ function CourseViewPage() {
   }
 
   const exportMenuItems = [
+    {
+      key: 'scorm',
+      label: '🎓 SCORM 1.2 (LMS пакет)',
+      onClick: () => handleExport('scorm')
+    },
+    {
+      type: 'divider'
+    },
     {
       key: 'html',
       label: '📄 HTML (веб-страница)',
@@ -1128,6 +1213,7 @@ function CourseViewPage() {
       >
         {editLessonModal.lesson && (
           <Form
+            form={editLessonForm}
             layout="vertical"
             initialValues={{
               lesson_title: editLessonModal.lesson.lesson_title,
@@ -1185,7 +1271,8 @@ function CourseViewPage() {
                     loading={regenerating}
                     onClick={() => handleRegenerateLessonContent(
                       editLessonModal.module.module_number, 
-                      editLessonModal.lessonIndex
+                      editLessonModal.lessonIndex,
+                      editLessonForm
                     )}
                   >
                     Перегенерировать с помощью AI

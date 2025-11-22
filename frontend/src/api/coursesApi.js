@@ -103,9 +103,10 @@ export const coursesApi = {
   },
 
   // Регенерировать план контента урока с помощью AI
-  regenerateLessonContent: async (courseId, moduleNumber, lessonIndex) => {
+  regenerateLessonContent: async (courseId, moduleNumber, lessonIndex, body = null) => {
     const response = await api.post(
-      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/regenerate-content`
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/regenerate-content`,
+      body
     )
     return response.data
   },

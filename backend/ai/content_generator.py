@@ -73,7 +73,7 @@ class ContentGenerator:
                 settings.PROMPT_VERSION,
                 LESSON_DETAILED_SYSTEM_PROMPT,
                 prompt,
-                "gpt-4-turbo-preview",
+                settings.OPENAI_MODEL_DETAILED_CONTENT,
                 str(0.3),
             )
             if settings.AI_CACHE_ENABLED:
@@ -85,9 +85,9 @@ class ContentGenerator:
             content_json = self.openai_client.call_ai_json(
                 system_prompt=LESSON_DETAILED_SYSTEM_PROMPT,
                 user_prompt=prompt,
-                model="gpt-4-turbo-preview",
+                model=settings.OPENAI_MODEL_DETAILED_CONTENT,
                 temperature=0.3,
-                max_tokens=4000,
+                max_tokens=settings.OPENAI_MAX_TOKENS_LESSON_DETAILED,
             )
             if not content_json:
                 logger.warning("❌ JSON mode вернул пустой результат для урока")
@@ -169,7 +169,7 @@ class ContentGenerator:
                 settings.PROMPT_VERSION,
                 MODULE_CONTENT_SYSTEM_PROMPT + "|json",
                 prompt,
-                "gpt-4-turbo-preview",
+                settings.OPENAI_MODEL_DETAILED_CONTENT,
                 str(0.3),
             )
             if settings.AI_CACHE_ENABLED:
@@ -184,9 +184,9 @@ class ContentGenerator:
             json_content = self.openai_client.call_ai_json(
                 system_prompt=MODULE_CONTENT_SYSTEM_PROMPT + "\n\nВЫВОД ТОЛЬКО В JSON ФОРМАТЕ!",
                 user_prompt=prompt,
-                model="gpt-4-turbo-preview",
+                model=settings.OPENAI_MODEL_DETAILED_CONTENT,
                 temperature=0.3,
-                max_tokens=4096,
+                max_tokens=settings.OPENAI_MAX_TOKENS_MODULE_CONTENT,
             )
             
             if json_content and "lectures" in json_content:
@@ -257,7 +257,7 @@ class ContentGenerator:
                 user_prompt=prompt,
                 model="gpt-4",
                 temperature=0.3,
-                max_tokens=4000,
+                max_tokens=settings.OPENAI_MAX_TOKENS_LESSON_DETAILED,
             )
             if not content:
                 return None
@@ -509,9 +509,9 @@ class ContentGenerator:
             json_content = self.openai_client.call_ai_json(
                 system_prompt=TOPIC_MATERIAL_SYSTEM_PROMPT,
                 user_prompt=prompt,
-                model="gpt-4-turbo-preview",
+                model=settings.OPENAI_MODEL_DETAILED_CONTENT,
                 temperature=0.7,
-                max_tokens=4096,
+                max_tokens=settings.OPENAI_MAX_TOKENS_TOPIC_MATERIAL,
             )
             if not json_content:
                 # Обычный режим + санитайзер
@@ -520,7 +520,7 @@ class ContentGenerator:
                     user_prompt=prompt,
                     model="gpt-4",
                     temperature=0.7,
-                    max_tokens=4000,
+                    max_tokens=settings.OPENAI_MAX_TOKENS_LESSON_DETAILED,
                 )
                 if not content:
                     return None

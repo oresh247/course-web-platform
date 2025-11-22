@@ -174,8 +174,14 @@ async def delete_course(course_id: int):
 
 
 @router.get("/{course_id}/export/{format}")
-async def export_course(course_id: int, format: str):
-    """Экспортировать курс в указанном формате"""
+async def export_course(course_id: int, format: str, include_videos: bool = False):
+    """Экспортировать курс в указанном формате
+    
+    Args:
+        course_id: ID курса
+        format: Формат экспорта (json, markdown, txt, html, pptx, scorm)
+        include_videos: Включать ли видео в SCORM пакет (только для формата scorm)
+    """
     try:
         course_data = db.get_course(course_id)
         if not course_data:
@@ -218,10 +224,20 @@ async def export_course(course_id: int, format: str):
                 headers={"Content-Disposition": format_content_disposition(filename)}
             )
             
+        elif format == "scorm" or format == "zip":
+            scorm_bytes = export_service.export_course_scorm(course, course_id, include_videos=include_videos)
+            filename = safe_filename(course.course_title, "zip")
+            
+            return Response(
+                content=scorm_bytes,
+                media_type="application/zip",
+                headers={"Content-Disposition": format_content_disposition(filename)}
+            )
+            
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Неподдерживаемый формат. Используйте: json, markdown, txt, html, pptx"
+                detail="Неподдерживаемый формат. Используйте: json, markdown, txt, html, pptx, scorm"
             )
         
         # Формируем имя файла

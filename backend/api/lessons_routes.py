@@ -146,9 +146,26 @@ async def delete_lesson(course_id: int, module_number: int, lesson_index: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RegenerateLessonContentRequest(BaseModel):
+    """Тело запроса для регенерации плана контента урока"""
+    lesson_title: str | None = None
+    lesson_goal: str | None = None
+
 @router.post("/{course_id}/modules/{module_number}/lessons/{lesson_index}/regenerate-content", response_model=dict)
-async def regenerate_lesson_content(course_id: int, module_number: int, lesson_index: int):
-    """Регенерировать план контента урока с помощью AI"""
+async def regenerate_lesson_content(
+    course_id: int, 
+    module_number: int, 
+    lesson_index: int,
+    body: RegenerateLessonContentRequest | None = None
+):
+    """Регенерировать план контента урока с помощью AI
+    
+    Args:
+        course_id: ID курса
+        module_number: Номер модуля
+        lesson_index: Индекс урока
+        body: Опциональные параметры (lesson_title, lesson_goal) для использования актуальных значений из формы
+    """
     try:
         course_data = db.get_course(course_id)
         if not course_data:
@@ -170,11 +187,21 @@ async def regenerate_lesson_content(course_id: int, module_number: int, lesson_i
         
         lesson = module.lessons[lesson_index]
         
+        # Используем значения из запроса, если они переданы, иначе берем из базы данных
+        lesson_title = body.lesson_title if body and body.lesson_title else lesson.lesson_title
+        lesson_goal = body.lesson_goal if body and body.lesson_goal else lesson.lesson_goal
+        
+        # Если переданы новые значения, сначала обновляем урок в базе данных
+        if body and (body.lesson_title or body.lesson_goal):
+            lesson.lesson_title = lesson_title
+            lesson.lesson_goal = lesson_goal
+            db.update_course(course_id, course.dict())
+        
         new_content_outline = generation_service.regenerate_lesson_content_outline(
             course_title=course.course_title,
             module_title=module.module_title,
-            lesson_title=lesson.lesson_title,
-            lesson_goal=lesson.lesson_goal,
+            lesson_title=lesson_title,
+            lesson_goal=lesson_goal,
             lesson_format=lesson.format,
             estimated_time_minutes=lesson.estimated_time_minutes
         )
