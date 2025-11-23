@@ -21,6 +21,11 @@ OPENAI_MAX_TOKENS_LESSON_DETAILED = int(os.getenv("OPENAI_MAX_TOKENS_LESSON_DETA
 OPENAI_MAX_TOKENS_TOPIC_MATERIAL = int(os.getenv("OPENAI_MAX_TOKENS_TOPIC_MATERIAL", "4096"))
 OPENAI_MAX_TOKENS_SHORT_MIN = int(os.getenv("OPENAI_MAX_TOKENS_SHORT_MIN", "200"))
 OPENAI_MAX_TOKENS_SHORT_MAX = int(os.getenv("OPENAI_MAX_TOKENS_SHORT_MAX", "500"))
+# Настройки для генерации тестов
+# Используем модель, которая поддерживает JSON mode (gpt-4-turbo-preview, gpt-4o, gpt-3.5-turbo)
+OPENAI_MODEL_TEST = os.getenv("OPENAI_MODEL_TEST", "gpt-4-turbo-preview")
+OPENAI_TEMPERATURE_TEST = float(os.getenv("OPENAI_TEMPERATURE_TEST", "0.7"))
+OPENAI_MAX_TOKENS_TEST = int(os.getenv("OPENAI_MAX_TOKENS_TEST", "3000"))
 OPENAI_RETRIES_DEFAULT = int(os.getenv("OPENAI_RETRIES_DEFAULT", "2"))
 OPENAI_BACKOFF_SECONDS_DEFAULT = float(os.getenv("OPENAI_BACKOFF_SECONDS_DEFAULT", "1.0"))
 PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1")

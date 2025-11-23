@@ -103,6 +103,45 @@ export const coursesApi = {
   },
 
   // Регенерировать план контента урока с помощью AI
+  // ============================================================================
+  // API МЕТОДЫ ДЛЯ РАБОТЫ С ТЕСТАМИ
+  // ============================================================================
+  
+  // Сгенерировать тест для урока
+  generateLessonTest: async (courseId, moduleNumber, lessonIndex, testData = {}) => {
+    const response = await api.post(
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/generate-test`,
+      testData
+    )
+    return response.data
+  },
+
+  // Получить тест для урока
+  getLessonTest: async (courseId, moduleNumber, lessonIndex) => {
+    const response = await api.get(
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/test`
+    )
+    return response.data
+  },
+
+  // Обновить тест для урока
+  updateLessonTest: async (courseId, moduleNumber, lessonIndex, test) => {
+    const response = await api.put(
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/test`,
+      { test }
+    )
+    return response.data
+  },
+
+  // Перегенерировать тест для урока
+  regenerateLessonTest: async (courseId, moduleNumber, lessonIndex, testData = {}) => {
+    const response = await api.post(
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/regenerate-test`,
+      testData
+    )
+    return response.data
+  },
+
   regenerateLessonContent: async (courseId, moduleNumber, lessonIndex, body = null) => {
     const response = await api.post(
       `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/regenerate-content`,

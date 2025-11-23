@@ -7,11 +7,18 @@ import {
   DownloadOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
-  MoreOutlined
+  MoreOutlined,
+  FileTextOutlined,
+  CheckCircleOutlined,
+  FileAddOutlined,
+  ReadOutlined
 } from '@ant-design/icons'
 import { useState, useEffect } from 'react'
 import { App } from 'antd'
 import LessonVideoGenerator from './LessonVideoGenerator'
+import LessonTestGenerator from './LessonTestGenerator'
+import LessonTestEditor from './LessonTestEditor'
+import LessonTestRunner from './LessonTestRunner'
 import { getVideoApiUrl } from '../config/api'
 
 const LessonItem = ({ 
@@ -33,6 +40,12 @@ const LessonItem = ({
   const [loadingVideoInfo, setLoadingVideoInfo] = useState(false);
   const [openingVideo, setOpeningVideo] = useState(false);
   const [hasDetailContent, setHasDetailContent] = useState(false);
+  const [hasTest, setHasTest] = useState(false);
+  const [isGeneratingTest, setIsGeneratingTest] = useState(false);
+  const [testGeneratorVisible, setTestGeneratorVisible] = useState(false);
+  const [testEditorVisible, setTestEditorVisible] = useState(false);
+  const [testRunnerVisible, setTestRunnerVisible] = useState(false);
+  const [currentTest, setCurrentTest] = useState(null);
   
   // Загружаем информацию о видео при монтировании
   useEffect(() => {
@@ -54,6 +67,29 @@ const LessonItem = ({
       }
     };
     checkDetail();
+  }, [courseId, moduleNumber, index, contentRefreshKey]);
+
+  // Проверяем наличие теста для подсветки иконки
+  useEffect(() => {
+    const checkTest = async () => {
+      try {
+        if (!courseId || moduleNumber === undefined || index === undefined) return;
+        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const resp = await fetch(`${baseUrl}/api/courses/${courseId}/modules/${moduleNumber}/lessons/${index}/test`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setHasTest(true);
+          setCurrentTest(data.test);
+        } else {
+          setHasTest(false);
+          setCurrentTest(null);
+        }
+      } catch (e) {
+        setHasTest(false);
+        setCurrentTest(null);
+      }
+    };
+    checkTest();
   }, [courseId, moduleNumber, index, contentRefreshKey]);
   
   const loadVideoInfo = async () => {
@@ -363,6 +399,60 @@ const LessonItem = ({
               title={hasDetailContent ? "Экспортировать контент урока" : "Экспорт недоступен: сначала сгенерируйте детальный контент"}
             />
           </Dropdown>
+          {/* Иконки для работы с тестами */}
+          <Button 
+            type="primary"
+            size="small" 
+            icon={<FileAddOutlined />}
+            onClick={() => setTestGeneratorVisible(true)}
+            title="Сгенерировать тест"
+          />
+          <Button 
+            size="small" 
+            icon={<FileTextOutlined />}
+            onClick={async () => {
+              if (!currentTest) {
+                try {
+                  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+                  const resp = await fetch(`${baseUrl}/api/courses/${courseId}/modules/${moduleNumber}/lessons/${index}/test`);
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    setCurrentTest(data.test);
+                    setTestEditorVisible(true);
+                  }
+                } catch (e) {
+                  message.error('Ошибка загрузки теста');
+                }
+              } else {
+                setTestEditorVisible(true);
+              }
+            }}
+            disabled={!hasTest}
+            title={hasTest ? "Просмотр и редактирование теста" : "Недоступно: тест не сгенерирован"}
+          />
+          <Button 
+            size="small" 
+            icon={<CheckCircleOutlined />}
+            onClick={async () => {
+              if (!currentTest) {
+                try {
+                  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+                  const resp = await fetch(`${baseUrl}/api/courses/${courseId}/modules/${moduleNumber}/lessons/${index}/test`);
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    setCurrentTest(data.test);
+                    setTestRunnerVisible(true);
+                  }
+                } catch (e) {
+                  message.error('Ошибка загрузки теста');
+                }
+              } else {
+                setTestRunnerVisible(true);
+              }
+            }}
+            disabled={!hasTest}
+            title={hasTest ? "Пройти тест" : "Недоступно: тест не сгенерирован"}
+          />
           <Button 
             size="small" 
             icon={<EditOutlined />}
@@ -413,6 +503,40 @@ const LessonItem = ({
           <strong>Оценка:</strong> {lesson.assessment}
         </div>
       </Space>
+      
+      {/* Модальные окна для работы с тестами */}
+      <LessonTestGenerator
+        visible={testGeneratorVisible}
+        onCancel={() => setTestGeneratorVisible(false)}
+        onSuccess={(test) => {
+          setHasTest(true);
+          setCurrentTest(test);
+          setTestGeneratorVisible(false);
+        }}
+        courseId={courseId}
+        moduleNumber={moduleNumber}
+        lessonIndex={index}
+        lessonTitle={lesson.lesson_title}
+      />
+      
+      <LessonTestEditor
+        visible={testEditorVisible}
+        onCancel={() => setTestEditorVisible(false)}
+        onSuccess={(test) => {
+          setCurrentTest(test);
+          setTestEditorVisible(false);
+        }}
+        courseId={courseId}
+        moduleNumber={moduleNumber}
+        lessonIndex={index}
+        test={currentTest}
+      />
+      
+      <LessonTestRunner
+        visible={testRunnerVisible}
+        onCancel={() => setTestRunnerVisible(false)}
+        test={currentTest}
+      />
     </div>
   )
 }

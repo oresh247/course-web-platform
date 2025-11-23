@@ -263,7 +263,8 @@ def create_lesson_html(
     lesson_index: int,
     content_data: Dict[str, Any] = None,
     include_video: bool = False,
-    video_filename: Optional[str] = None
+    video_filename: Optional[str] = None,
+    test_data: Dict[str, Any] = None
 ) -> str:
     """Создает HTML страницу для урока со слайдами"""
     
@@ -338,6 +339,178 @@ def create_lesson_html(
         </video>
     </div>
 """
+    
+    # Добавляем блок с тестом, если он есть
+    test_html = ""
+    test_js = ""
+    if test_data and test_data.get("questions"):
+        questions = test_data.get("questions", [])
+        passing_score = test_data.get("passing_score_percent", 70)
+        
+        # Генерируем HTML для теста
+        test_questions_html = ""
+        for q_idx, question in enumerate(questions):
+            question_text = escape_xml(question.get("question_text", ""))
+            options = question.get("options", [])
+            explanation = escape_xml(question.get("explanation", "")) if question.get("explanation") else ""
+            
+            options_html = ""
+            for opt_idx, option in enumerate(options):
+                option_text = escape_xml(option.get("option_text", ""))
+                is_correct = option.get("is_correct", False)
+                options_html += f"""
+                <label class="test-option">
+                    <input type="radio" name="question_{q_idx}" value="{opt_idx}" data-correct="{str(is_correct).lower()}">
+                    {option_text}
+                </label>
+                """
+            
+            test_questions_html += f"""
+            <div class="test-question" id="test_question_{q_idx}">
+                <h4>Вопрос {q_idx + 1}: {question_text}</h4>
+                <div class="test-options">
+                    {options_html}
+                </div>
+                <div class="test-explanation" id="explanation_{q_idx}" style="display: none;">
+                    <strong>Объяснение:</strong> {explanation}
+                </div>
+            </div>
+            """
+        
+        test_html = f"""
+    <div class="test-container" id="testContainer" style="display: none;">
+        <h3>📝 Тест для проверки знаний</h3>
+        <div id="testContent">
+            {test_questions_html}
+        </div>
+        <div class="test-controls">
+            <button onclick="checkTest()" class="test-btn">Проверить ответы</button>
+            <button onclick="resetTest()" class="test-btn">Начать заново</button>
+        </div>
+        <div id="testResults" style="display: none;"></div>
+    </div>
+    <div class="test-toggle">
+        <button onclick="toggleTest()" class="test-btn-primary">Пройти тест</button>
+    </div>
+"""
+        
+        # Генерируем JavaScript для теста
+        test_js = f"""
+        let testAnswers = {{}};
+        let testChecked = false;
+        
+        function toggleTest() {{
+            const container = document.getElementById('testContainer');
+            const toggleBtn = document.querySelector('.test-toggle button');
+            if (container.style.display === 'none') {{
+                container.style.display = 'block';
+                toggleBtn.textContent = 'Скрыть тест';
+            }} else {{
+                container.style.display = 'none';
+                toggleBtn.textContent = 'Пройти тест';
+            }}
+        }}
+        
+        function checkTest() {{
+            if (testChecked) {{
+                resetTest();
+                return;
+            }}
+            
+            const questions = {len(questions)};
+            let correct = 0;
+            let total = 0;
+            const results = [];
+            
+            for (let i = 0; i < questions; i++) {{
+                const selected = document.querySelector(`input[name="question_${{i}}"]:checked`);
+                if (selected) {{
+                    total++;
+                    const isCorrect = selected.dataset.correct === 'true';
+                    if (isCorrect) {{
+                        correct++;
+                    }}
+                    results.push({{
+                        question: i,
+                        correct: isCorrect,
+                        selected: selected.value
+                    }});
+                    
+                    // Показываем объяснение
+                    const explanation = document.getElementById(`explanation_${{i}}`);
+                    if (explanation) {{
+                        explanation.style.display = 'block';
+                    }}
+                    
+                    // Подсвечиваем правильный/неправильный ответ
+                    const questionDiv = document.getElementById(`test_question_${{i}}`);
+                    const allOptions = questionDiv.querySelectorAll('.test-option');
+                    allOptions.forEach(opt => {{
+                        const radio = opt.querySelector('input');
+                        if (radio.dataset.correct === 'true') {{
+                            opt.style.backgroundColor = '#d4edda';
+                            opt.style.borderColor = '#28a745';
+                        }} else if (radio.checked && radio.dataset.correct === 'false') {{
+                            opt.style.backgroundColor = '#f8d7da';
+                            opt.style.borderColor = '#dc3545';
+                        }}
+                    }});
+                }}
+            }}
+            
+            const score = total > 0 ? Math.round((correct / total) * 100) : 0;
+            const passed = score >= {passing_score};
+            
+            const resultsHtml = `
+                <div class="test-results">
+                    <h4>${{passed ? '✅ Тест пройден!' : '❌ Тест не пройден'}}</h4>
+                    <p>Правильных ответов: ${{correct}} из ${{total}} (${{score}}%)</p>
+                    <p>Для прохождения необходимо: {passing_score}%</p>
+                </div>
+            `;
+            
+            document.getElementById('testResults').innerHTML = resultsHtml;
+            document.getElementById('testResults').style.display = 'block';
+            
+            // Сохраняем результат в SCORM
+            if (typeof SCORM_API_SetValue === 'function') {{
+                SCORM_API_SetValue('cmi.core.score.raw', String(score));
+                SCORM_API_SetValue('cmi.core.score.max', '100');
+                SCORM_API_SetValue('cmi.core.score.min', '0');
+                SCORM_API_SetValue('cmi.core.lesson_status', passed ? 'passed' : 'failed');
+                SCORM_API_Commit('');
+            }}
+            
+            testChecked = true;
+            document.querySelector('.test-controls button').textContent = 'Начать заново';
+        }}
+        
+        function resetTest() {{
+            testChecked = false;
+            testAnswers = {{}};
+            
+            // Сбрасываем все радиокнопки
+            document.querySelectorAll('input[type="radio"]').forEach(radio => {{
+                radio.checked = false;
+            }});
+            
+            // Скрываем объяснения
+            document.querySelectorAll('.test-explanation').forEach(exp => {{
+                exp.style.display = 'none';
+            }});
+            
+            // Сбрасываем подсветку
+            document.querySelectorAll('.test-option').forEach(opt => {{
+                opt.style.backgroundColor = '';
+                opt.style.borderColor = '';
+            }});
+            
+            // Скрываем результаты
+            document.getElementById('testResults').style.display = 'none';
+            
+            document.querySelector('.test-controls button').textContent = 'Проверить ответы';
+        }}
+        """
     
     html_content = f"""<!DOCTYPE html>
 <html lang="ru">
@@ -456,6 +629,88 @@ def create_lesson_html(
             background: #ccc;
             cursor: not-allowed;
         }}
+        .test-container {{
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }}
+        .test-container h3 {{
+            color: #667eea;
+            margin-top: 0;
+        }}
+        .test-question {{
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background: #fafafa;
+        }}
+        .test-question h4 {{
+            color: #333;
+            margin-bottom: 15px;
+        }}
+        .test-options {{
+            margin-top: 15px;
+        }}
+        .test-option {{
+            display: block;
+            padding: 12px;
+            margin: 8px 0;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }}
+        .test-option:hover {{
+            border-color: #667eea;
+            background: #f0f0ff;
+        }}
+        .test-option input {{
+            margin-right: 10px;
+        }}
+        .test-explanation {{
+            margin-top: 15px;
+            padding: 15px;
+            background: #e7f3ff;
+            border-left: 4px solid #667eea;
+            border-radius: 5px;
+            font-style: italic;
+            color: #555;
+        }}
+        .test-controls {{
+            text-align: center;
+            margin-top: 30px;
+        }}
+        .test-btn, .test-btn-primary {{
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+        }}
+        .test-btn:hover, .test-btn-primary:hover {{
+            background: #5568d3;
+        }}
+        .test-toggle {{
+            text-align: center;
+            margin-bottom: 20px;
+        }}
+        .test-results {{
+            margin-top: 30px;
+            padding: 20px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            text-align: center;
+        }}
+        .test-results h4 {{
+            font-size: 20px;
+            margin-bottom: 10px;
+        }}
     </style>
 </head>
 <body>
@@ -469,6 +724,8 @@ def create_lesson_html(
     </div>
     
     {video_html}
+    
+    {test_html}
     
     <div class="slide-container">
         {slides_html}
@@ -542,6 +799,8 @@ def create_lesson_html(
                 SCORM_API_Terminate('');
             }}
         }});
+        
+        {test_js}
     </script>
 </body>
 </html>
@@ -820,6 +1079,17 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                     else:
                         logger.warning(f"⚠️ Урок {module.module_number}_{lesson_idx}: видео НЕ включено в пакет")
                 
+                # Получаем тест для урока, если он есть
+                test_data = None
+                if content_data and 'test' in content_data:
+                    test_data = content_data['test']
+                else:
+                    # Пробуем получить тест напрямую из БД
+                    try:
+                        test_data = db.get_lesson_test(course_id, module.module_number, lesson_idx)
+                    except Exception as e:
+                        logger.debug(f"Тест для урока {module.module_number}_{lesson_idx} не найден: {e}")
+                
                 # Создаем HTML для урока
                 lesson_html = create_lesson_html(
                     course=course,
@@ -828,7 +1098,8 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                     lesson_index=lesson_idx,
                     content_data=content_data,
                     include_video=include_videos and video_filename is not None,
-                    video_filename=video_filename
+                    video_filename=video_filename,
+                    test_data=test_data
                 )
                 
                 # Сохраняем в ZIP

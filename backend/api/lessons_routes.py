@@ -8,14 +8,16 @@ AI‑регенерация контента и экспорт.
 - `logging` — логируем ключевые шаги и ошибки.
 """
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional
 import logging
 import json
 
-from backend.models.domain import Course
+from backend.models.domain import Course, LessonTest
 from backend.ai.content_generator import ContentGenerator
 from backend.database import db
 from backend.services.generation_service import generation_service
+from backend.services.test_generator_service import TestGeneratorService
 from backend.services.export_service import export_service
 from backend.utils.formatters import safe_filename, format_content_disposition
 from fastapi.responses import Response
@@ -26,6 +28,7 @@ router = APIRouter(prefix="/api/courses", tags=["lessons"])
 
 # Инициализируем генератор контента
 content_generator = ContentGenerator()
+test_generator = TestGeneratorService()
 class DuplicateLessonRequest(BaseModel):
     """Тело запроса для дублирования урока.
 
@@ -395,4 +398,193 @@ async def export_lesson_content(course_id: int, module_number: int, lesson_index
     except Exception as e:
         logger.error(f"Ошибка экспорта контента урока: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# API ENDPOINTS ДЛЯ РАБОТЫ С ТЕСТАМИ
+# ============================================================================
+
+class GenerateTestRequest(BaseModel):
+    """Запрос на генерацию теста с настройками AI"""
+    num_questions: int = Field(default=10, ge=5, le=20, description="Количество вопросов")
+    model: Optional[str] = Field(default=None, description="Модель AI (если не указана, используется настройка по умолчанию)")
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0, description="Температура для генерации")
+    max_tokens: Optional[int] = Field(default=None, ge=100, description="Максимальное количество токенов")
+
+
+class UpdateTestRequest(BaseModel):
+    """Запрос на обновление теста"""
+    test: LessonTest
+
+
+@router.post("/{course_id}/modules/{module_number}/lessons/{lesson_index}/generate-test", response_model=dict)
+async def generate_lesson_test(
+    course_id: int,
+    module_number: int,
+    lesson_index: int,
+    body: GenerateTestRequest = GenerateTestRequest()
+):
+    """Сгенерировать тест для урока с использованием AI"""
+    try:
+        course_data = db.get_course(course_id)
+        if not course_data:
+            raise HTTPException(status_code=404, detail="Курс не найден")
+        
+        course_data.pop('id', None)
+        course_data.pop('created_at', None)
+        course_data.pop('updated_at', None)
+        course = Course(**course_data)
+        
+        module = None
+        for m in course.modules:
+            if m.module_number == module_number:
+                module = m
+                break
+        
+        if not module or lesson_index >= len(module.lessons):
+            raise HTTPException(status_code=404, detail="Модуль или урок не найден")
+        
+        lesson = module.lessons[lesson_index]
+        
+        logger.info(f"Генерация теста для урока {lesson_index} модуля {module_number} курса {course_id}")
+        
+        # Генерируем тест
+        test = test_generator.generate_test(
+            lesson_title=lesson.lesson_title,
+            lesson_goal=lesson.lesson_goal,
+            content_outline=lesson.content_outline,
+            course_title=course.course_title,
+            target_audience=course.target_audience,
+            module_title=module.module_title,
+            num_questions=body.num_questions,
+            model=body.model,
+            temperature=body.temperature,
+            max_tokens=body.max_tokens
+        )
+        
+        if not test:
+            raise HTTPException(
+                status_code=500,
+                detail="Не удалось сгенерировать тест"
+            )
+        
+        # Сохраняем тест в БД
+        db.save_lesson_test(
+            course_id=course_id,
+            module_number=module_number,
+            lesson_index=lesson_index,
+            lesson_title=lesson.lesson_title,
+            test_data=test.dict()
+        )
+        
+        logger.info(f"✅ Тест для урока {lesson_index} модуля {module_number} сгенерирован")
+        
+        return {
+            "status": "generated",
+            "message": f"Тест для урока '{lesson.lesson_title}' сгенерирован",
+            "test": test.dict()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка генерации теста: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{course_id}/modules/{module_number}/lessons/{lesson_index}/test", response_model=dict)
+async def get_lesson_test(course_id: int, module_number: int, lesson_index: int):
+    """Получить тест для урока"""
+    try:
+        test_data = db.get_lesson_test(course_id, module_number, lesson_index)
+        
+        if not test_data:
+            raise HTTPException(
+                status_code=404,
+                detail="Тест не найден. Сначала сгенерируйте его."
+            )
+        
+        return {
+            "status": "found",
+            "test": test_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения теста: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{course_id}/modules/{module_number}/lessons/{lesson_index}/test", response_model=dict)
+async def update_lesson_test(
+    course_id: int,
+    module_number: int,
+    lesson_index: int,
+    body: UpdateTestRequest
+):
+    """Обновить тест для урока"""
+    try:
+        course_data = db.get_course(course_id)
+        if not course_data:
+            raise HTTPException(status_code=404, detail="Курс не найден")
+        
+        course_data.pop('id', None)
+        course_data.pop('created_at', None)
+        course_data.pop('updated_at', None)
+        course = Course(**course_data)
+        
+        module = None
+        for m in course.modules:
+            if m.module_number == module_number:
+                module = m
+                break
+        
+        if not module or lesson_index >= len(module.lessons):
+            raise HTTPException(status_code=404, detail="Модуль или урок не найден")
+        
+        lesson = module.lessons[lesson_index]
+        
+        # Валидация теста через Pydantic
+        try:
+            test = LessonTest(**body.test.dict())
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Невалидные данные теста: {e}")
+        
+        # Сохраняем обновленный тест
+        db.save_lesson_test(
+            course_id=course_id,
+            module_number=module_number,
+            lesson_index=lesson_index,
+            lesson_title=lesson.lesson_title,
+            test_data=test.dict()
+        )
+        
+        logger.info(f"✅ Тест для урока {lesson_index} модуля {module_number} обновлен")
+        
+        return {
+            "status": "updated",
+            "message": f"Тест для урока '{lesson.lesson_title}' обновлен",
+            "test": test.dict()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка обновления теста: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{course_id}/modules/{module_number}/lessons/{lesson_index}/regenerate-test", response_model=dict)
+async def regenerate_lesson_test(
+    course_id: int,
+    module_number: int,
+    lesson_index: int,
+    body: GenerateTestRequest = GenerateTestRequest()
+):
+    """Перегенерировать тест для урока (аналогично generate, но обновляет существующий)"""
+    # Используем тот же endpoint, что и generate, но с другим названием для ясности
+    return await generate_lesson_test(course_id, module_number, lesson_index, body)
 

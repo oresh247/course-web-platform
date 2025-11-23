@@ -275,23 +275,53 @@ class OpenAIClient:
     ) -> Optional[Dict[str, Any]]:
         """Вызывает модель в JSON-режиме и парсит результат в dict.
         Возвращает None, если парсинг не удался.
+        Если модель не поддерживает JSON mode, делает fallback на обычный вызов.
         """
-        content = self.call_ai(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            retries=retries,
-            backoff_seconds=backoff_seconds,
-        )
+        from backend.config import settings
+        if model is None:
+            model = settings.OPENAI_MODEL_DEFAULT
+        
+        # Список моделей, которые поддерживают JSON mode
+        json_mode_models = [
+            "gpt-4-turbo-preview", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini",
+            "gpt-3.5-turbo", "gpt-3.5-turbo-16k"
+        ]
+        
+        # Пытаемся использовать JSON mode, если модель поддерживает
+        use_json_mode = any(json_model in model.lower() for json_model in json_mode_models)
+        
+        if use_json_mode:
+            content = self.call_ai(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                retries=retries,
+                backoff_seconds=backoff_seconds,
+            )
+        else:
+            # Fallback: вызываем без JSON mode и парсим ответ
+            logger.warning(f"Модель {model} не поддерживает JSON mode, используем fallback")
+            content = self.call_ai(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=None,
+                retries=retries,
+                backoff_seconds=backoff_seconds,
+            )
+        
         if content is None:
             return None
         try:
-            # В JSON-режиме OpenAI должен вернуть корректный JSON
+            # Пытаемся распарсить JSON
             return json.loads(content)
         except Exception:
             # Fallback: попытаться вытащить JSON из текста
-            return self._extract_json_from_response(content)
+            from backend.ai.json_sanitizer import extract_json
+            return extract_json(content, expected_key=None)
 

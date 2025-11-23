@@ -600,7 +600,90 @@ class CourseDatabase:
                 logger.debug(f"Запись не найдена в БД для курса {course_id}, модуль {module_number}, урок {lesson_index}")
             
             return None
-
+    
+    def save_lesson_test(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int,
+        lesson_title: str,
+        test_data: Dict[str, Any]
+    ) -> int:
+        """
+        Сохранить тест для урока
+        
+        Args:
+            course_id: ID курса
+            module_number: Номер модуля
+            lesson_index: Индекс урока
+            lesson_title: Название урока
+            test_data: Данные теста (LessonTest в виде dict)
+            
+        Returns:
+            ID созданной/обновленной записи
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Получаем существующий контент, если есть
+            existing_content = self.get_lesson_content(course_id, module_number, lesson_index)
+            
+            if existing_content:
+                # Обновляем существующий контент, добавляя/обновляя тест
+                existing_content['test'] = test_data
+                cursor.execute("""
+                    UPDATE lesson_contents
+                    SET content_data = ?
+                    WHERE course_id = ? AND module_number = ? AND lesson_index = ?
+                """, (
+                    json.dumps(existing_content, ensure_ascii=False),
+                    course_id,
+                    module_number,
+                    lesson_index
+                ))
+                record_id = cursor.lastrowid
+            else:
+                # Создаем новый контент только с тестом
+                content_data = {'test': test_data}
+                cursor.execute("""
+                    INSERT INTO lesson_contents (
+                        course_id, module_number, lesson_index, lesson_title, content_data
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (
+                    course_id,
+                    module_number,
+                    lesson_index,
+                    lesson_title,
+                    json.dumps(content_data, ensure_ascii=False)
+                ))
+                record_id = cursor.lastrowid
+            
+            conn.commit()
+            logger.info(f"✅ Тест для урока {lesson_index} сохранен (ID: {record_id})")
+            return record_id
+    
+    def get_lesson_test(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Получить тест для урока
+        
+        Args:
+            course_id: ID курса
+            module_number: Номер модуля
+            lesson_index: Индекс урока
+            
+        Returns:
+            Данные теста или None
+        """
+        content_data = self.get_lesson_content(course_id, module_number, lesson_index)
+        if content_data and 'test' in content_data:
+            return content_data['test']
+        return None
+    
     def delete_lesson_content(self, course_id: int, module_number: int, lesson_index: int) -> int:
         """Удалить запись детального контента одного урока."""
         with sqlite3.connect(self.db_path) as conn:

@@ -76,6 +76,28 @@ class LessonContent(BaseModel):
     total_estimated_time_minutes: int = Field(default=0)
 
 
+class QuestionOption(BaseModel):
+    """Вариант ответа на вопрос теста"""
+    option_text: str = Field(..., description="Текст варианта ответа")
+    is_correct: bool = Field(default=False, description="Правильный ли это вариант")
+
+
+class TestQuestion(BaseModel):
+    """Вопрос теста"""
+    question_text: str = Field(..., description="Текст вопроса")
+    options: List[QuestionOption] = Field(..., description="Варианты ответов (минимум 2, максимум 6)")
+    explanation: Optional[str] = Field(default=None, description="Объяснение правильного ответа")
+
+
+class LessonTest(BaseModel):
+    """Тест для урока"""
+    lesson_title: str = Field(..., description="Название урока")
+    lesson_goal: str = Field(..., description="Цель урока")
+    questions: List[TestQuestion] = Field(..., description="Вопросы теста")
+    total_questions: int = Field(default=0, description="Общее количество вопросов")
+    passing_score_percent: int = Field(default=70, ge=0, le=100, description="Процент для прохождения теста")
+
+
 class Lesson(BaseModel):
     """Урок в модуле курса"""
     lesson_title: str = Field(..., description="Название урока")
@@ -93,6 +115,9 @@ class Lesson(BaseModel):
     video_download_url: Optional[str] = Field(default=None, description="URL для скачивания видео")
     video_status: Optional[str] = Field(default=None, description="Статус видео (generating, completed, failed)")
     video_generated_at: Optional[datetime] = Field(default=None, description="Дата генерации видео")
+    
+    # Информация о тесте
+    test: Optional[LessonTest] = Field(default=None, description="Тест для урока")
 
 
 class Module(BaseModel):
