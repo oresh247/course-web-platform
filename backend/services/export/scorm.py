@@ -41,9 +41,10 @@ def escape_xml(text: str) -> str:
 
 
 def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str, str] = None) -> str:
-    """Создает imsmanifest.xml для SCORM 1.2"""
+    """Создает imsmanifest.xml для SCORM 1.2 (совместимый с iSpring)"""
     
     # Создаем корневой элемент manifest
+    # Используем стандартные namespace для SCORM 1.2 (совместимо с iSpring)
     manifest = ET.Element("manifest")
     manifest.set("identifier", f"course_{course_id}")
     manifest.set("version", "1.0")
@@ -55,7 +56,7 @@ def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str,
                  "http://www.imsglobal.org/xsd/imsmd_rootv1p2p1 imsmd_rootv1p2p1.xsd "
                  "http://www.adlnet.org/xsd/adlcp_rootv1p2 adlcp_rootv1p2.xsd")
     
-    # Метаданные
+    # Метаданные (обязательные для SCORM 1.2)
     metadata = ET.SubElement(manifest, "metadata")
     schema = ET.SubElement(metadata, "schema")
     schema.text = "ADL SCORM"
@@ -77,11 +78,11 @@ def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str,
     # Ресурсы
     resources = ET.SubElement(manifest, "resources")
     
-    item_counter = 1
     resource_counter = 1
     
     # Проходим по модулям
     for module in course.modules:
+        # Модуль - это контейнер, НЕ SCO (не имеет identifierref)
         module_item = ET.SubElement(items, "item")
         module_item.set("identifier", f"MODULE_{module.module_number}")
         module_title = ET.SubElement(module_item, "title")
@@ -99,14 +100,14 @@ def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str,
             lesson_title = ET.SubElement(lesson_item, "title")
             lesson_title.text = escape_xml(f"{lesson_idx + 1}. {lesson.lesson_title}")
             
-            # Создаем ресурс для урока
+            # Создаем ресурс для урока (SCO - Shareable Content Object)
             resource = ET.SubElement(resources, "resource")
             resource.set("identifier", f"RES_{resource_counter}")
             resource.set("type", "webcontent")
             resource.set("adlcp:scormtype", "sco")
             resource.set("href", f"lessons/lesson_{module.module_number}_{lesson_idx}.html")
             
-            # Файл HTML урока
+            # Файл HTML урока (обязательный)
             file_elem = ET.SubElement(resource, "file")
             file_elem.set("href", f"lessons/lesson_{module.module_number}_{lesson_idx}.html")
             
@@ -116,22 +117,14 @@ def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str,
                 video_file_elem = ET.SubElement(resource, "file")
                 video_file_elem.set("href", f"videos/{video_files[video_key]}")
             
-            # Зависимости (SCORM API)
-            dependency = ET.SubElement(resource, "dependency")
-            dependency.set("identifierref", "API_JS")
+            # ВАЖНО: SCORM API должен быть встроен в HTML файл, а не через dependency
+            # Поэтому мы НЕ добавляем dependency здесь
             
             resource_counter += 1
-            item_counter += 1
     
-    # Ресурс SCORM API
-    api_resource = ET.SubElement(resources, "resource")
-    api_resource.set("identifier", "API_JS")
-    api_resource.set("type", "webcontent")
-    api_resource.set("href", "scripts/SCORM_API_wrapper.js")
-    
-    # Файл SCORM API
-    api_file = ET.SubElement(api_resource, "file")
-    api_file.set("href", "scripts/SCORM_API_wrapper.js")
+    # ВАЖНО: SCORM API должен быть включен в каждый HTML файл через <script> тег
+    # Поэтому мы НЕ создаем отдельный ресурс для API
+    # API уже встроен в HTML через create_lesson_html()
     
     # Форматируем XML
     ET.indent(manifest, space="  ")
