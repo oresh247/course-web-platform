@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+
+# HeyGen Integration
+
+## HeyGen интеграция
+- Используй `HeyGenService` из `backend.services.heygen_service`
+- Если `HEYGEN_API_KEY` не задан, используй `MockHeyGenService`
+- Всегда обрабатывай таймауты для HeyGen запросов

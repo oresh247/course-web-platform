@@ -42,6 +42,10 @@ course-web-platform/
 └── README.md
 ```
 
+📚 **Подробная документация архитектуры:** [`docs/ARCHITECTURE_NEW.md`](docs/ARCHITECTURE_NEW.md)
+
+📐 **Принципы архитектуры для разработки:** [`.cursor/rules/architecture-principles.mdc`](.cursor/rules/architecture-principles.mdc)
+
 ## 🚀 Быстрый старт
 
 > **🌐 Хотите развернуть в облаке?** См. [RENDER_QUICKSTART.md](./RENDER_QUICKSTART.md) для развертывания на Render.com за 5 минут!

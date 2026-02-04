@@ -1,0 +1,11 @@
+---
+alwaysApply: true
+---
+
+# AI and Content Generation
+
+## AI и генерация контента
+- Используй `OpenAIClient` из `backend.ai.openai_client`
+- Используй промпты из `backend.ai.prompts`
+- Всегда обрабатывай ошибки OpenAI API
+- Используй кэширование AI ответов через `backend.ai.cache`

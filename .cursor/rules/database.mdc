@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+
+# Database
+
+## База данных
+- Используй SQLite для разработки (`backend/courses.db`)
+- Используй PostgreSQL для production
+- Все операции с БД через `backend.database.db`

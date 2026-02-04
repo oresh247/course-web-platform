@@ -1,0 +1,9 @@
+---
+alwaysApply: true
+---
+
+# Export
+
+## Экспорт
+- Используй `ExportService` из `backend.services.export_service`
+- Поддерживаемые форматы: JSON, Markdown, HTML, PPTX, SCORM

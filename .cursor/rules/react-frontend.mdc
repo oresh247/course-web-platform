@@ -1,0 +1,14 @@
+---
+alwaysApply: true
+---
+
+# React/Frontend
+
+## React/Frontend
+- Все страницы должны быть в `frontend/src/pages/`
+- Переиспользуемые компоненты в `frontend/src/components/`
+- API клиент в `frontend/src/api/coursesApi.js`
+- Используй Ant Design компоненты (не нативные HTML)
+- Используй темную тему IT-ONE (цвета из App.jsx)
+- Используй React Router для навигации
+- Используй axios для HTTP запросов

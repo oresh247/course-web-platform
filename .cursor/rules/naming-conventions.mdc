@@ -1,0 +1,10 @@
+---
+alwaysApply: true
+---
+
+# Naming Conventions
+
+## Именование
+- Backend: `courses_routes.py`, `modules_routes.py`, `lessons_routes.py`
+- Frontend: `CourseViewPage.jsx`, `CreateCoursePage.jsx` (PascalCase)
+- API endpoints: `/api/courses/{id}/modules/{module_number}/...`

@@ -1,0 +1,12 @@
+---
+alwaysApply: true
+---
+
+# FastAPI Patterns
+
+## FastAPI паттерны
+- Используй `response_model` для всех endpoints
+- Используй async функции для всех endpoints
+- Логируй все важные действия через logger
+- Используй `from backend.database import db` для работы с БД
+- Используй `from backend.config.settings import *` для настроек
