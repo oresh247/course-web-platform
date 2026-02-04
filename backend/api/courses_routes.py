@@ -18,6 +18,7 @@ from backend.models.domain import (
 from backend.ai.openai_client import OpenAIClient
 from backend.database import db
 from backend.services.export_service import export_service
+from backend.services.export.scorm import SCORM_VERSION_12, SCORM_VERSION_2004
 from backend.utils.formatters import safe_filename, format_content_disposition
 from fastapi.responses import Response
 
@@ -179,8 +180,8 @@ async def export_course(course_id: int, format: str, include_videos: bool = Fals
     
     Args:
         course_id: ID курса
-        format: Формат экспорта (json, markdown, txt, html, pptx, scorm)
-        include_videos: Включать ли видео в SCORM пакет (только для формата scorm)
+        format: Формат экспорта (json, markdown, txt, html, pptx, scorm, scorm2004)
+        include_videos: Включать ли видео в SCORM пакет (только для форматов scorm/scorm2004)
     """
     try:
         course_data = db.get_course(course_id)
@@ -224,8 +225,28 @@ async def export_course(course_id: int, format: str, include_videos: bool = Fals
                 headers={"Content-Disposition": format_content_disposition(filename)}
             )
             
-        elif format == "scorm" or format == "zip":
-            scorm_bytes = export_service.export_course_scorm(course, course_id, include_videos=include_videos)
+        elif format in {"scorm", "zip", "scorm12", "scorm-12", "scorm_12"}:
+            scorm_bytes = export_service.export_course_scorm(
+                course,
+                course_id,
+                include_videos=include_videos,
+                scorm_version=SCORM_VERSION_12,
+            )
+            filename = safe_filename(course.course_title, "zip")
+            
+            return Response(
+                content=scorm_bytes,
+                media_type="application/zip",
+                headers={"Content-Disposition": format_content_disposition(filename)}
+            )
+            
+        elif format in {"scorm2004", "scorm-2004", "scorm_2004"}:
+            scorm_bytes = export_service.export_course_scorm(
+                course,
+                course_id,
+                include_videos=include_videos,
+                scorm_version=SCORM_VERSION_2004,
+            )
             filename = safe_filename(course.course_title, "zip")
             
             return Response(
@@ -237,7 +258,7 @@ async def export_course(course_id: int, format: str, include_videos: bool = Fals
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Неподдерживаемый формат. Используйте: json, markdown, txt, html, pptx, scorm"
+                detail="Неподдерживаемый формат. Используйте: json, markdown, txt, html, pptx, scorm, scorm2004"
             )
         
         # Формируем имя файла

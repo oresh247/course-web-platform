@@ -29,6 +29,7 @@ from backend.services.export.pptx import (
 )
 from backend.services.export.scorm import (
     export_course_scorm as _export_course_scorm,
+    SCORM_VERSION_12,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,9 +65,14 @@ class ExportService:
         return _export_course_pptx(course)
     
     @staticmethod
-    def export_course_scorm(course: Course, course_id: int, include_videos: bool = False) -> bytes:
-        """Генерирует SCORM 1.2 пакет (ZIP архив) для курса"""
-        return _export_course_scorm(course, course_id, include_videos)
+    def export_course_scorm(
+        course: Course,
+        course_id: int,
+        include_videos: bool = False,
+        scorm_version: str = SCORM_VERSION_12,
+    ) -> bytes:
+        """Генерирует SCORM пакет (ZIP архив) для курса"""
+        return _export_course_scorm(course, course_id, include_videos, scorm_version)
     
     # ========== ЭКСПОРТ МОДУЛЯ (ДЕТАЛЬНЫЙ КОНТЕНТ) ==========
     

@@ -156,16 +156,26 @@ function CourseViewPage() {
     }
   }
 
+  const scormFormats = ['scorm', 'scorm2004']
+  const isScormFormat = (format) => scormFormats.includes(format)
+  const getExportFormatLabel = (format) => {
+    if (format === 'scorm') return 'SCORM 1.2'
+    if (format === 'scorm2004') return 'SCORM 2004'
+    return format.toUpperCase()
+  }
+
   const handleExport = (format) => {
     if (!id || id === 'null' || id === 'undefined') {
       message.error('Неверный ID курса')
       return
     }
     
+    const exportLabel = getExportFormatLabel(format)
+
     // Для SCORM формата спрашиваем о включении видео
-    if (format === 'scorm') {
+    if (isScormFormat(format)) {
       Modal.confirm({
-        title: 'Экспорт в SCORM',
+        title: `Экспорт в ${exportLabel}`,
         content: (
           <div>
             <p>Включить видеоматериалы в SCORM пакет?</p>
@@ -198,12 +208,13 @@ function CourseViewPage() {
     let url = `${baseUrl}/api/courses/${courseId}/export/${format}`
     
     // Добавляем параметр include_videos для SCORM
-    if (format === 'scorm' && includeVideos) {
+    if (isScormFormat(format) && includeVideos) {
       url += '?include_videos=true'
     }
     
     window.open(url, '_blank')
-    message.success(`Экспорт в формате ${format.toUpperCase()} начат${includeVideos ? ' (с видео)' : ''}`)
+    const exportLabel = getExportFormatLabel(format)
+    message.success(`Экспорт в формате ${exportLabel} начат${includeVideos ? ' (с видео)' : ''}`)
   }
 
   const handleEditClick = () => {
@@ -730,6 +741,11 @@ function CourseViewPage() {
       key: 'scorm',
       label: '🎓 SCORM 1.2 (LMS пакет)',
       onClick: () => handleExport('scorm')
+    },
+    {
+      key: 'scorm2004',
+      label: '🎓 SCORM 2004 (LMS пакет)',
+      onClick: () => handleExport('scorm2004')
     },
     {
       type: 'divider'
