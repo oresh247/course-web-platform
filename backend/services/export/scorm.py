@@ -1,5 +1,5 @@
 """
-SCORM 1.2 экспорт курсов с детальным контентом (слайды).
+Экспорт курсов в SCORM 1.2 и SCORM 2004 с детальным контентом (слайды).
 
 SCORM (Sharable Content Object Reference Model) - стандарт для электронного обучения,
 который позволяет курсам работать в различных LMS (Learning Management Systems).
@@ -13,6 +13,7 @@ SCORM (Sharable Content Object Reference Model) - стандарт для эле
 """
 import zipfile
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from io import BytesIO
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -25,6 +26,129 @@ from backend.models.domain import Course, Module
 from backend.database import db
 
 logger = logging.getLogger(__name__)
+
+SCORM_VERSION_12 = "1.2"
+SCORM_VERSION_2004 = "2004"
+SCORM_MANIFEST_SCHEMA_12 = "1.2"
+SCORM_MANIFEST_SCHEMA_2004 = "2004 4th Edition"
+SCORM_12_SCORMTYPE_ATTR = "adlcp:scormtype"
+SCORM_2004_SCORMTYPE_ATTR = "adlcp:scormType"
+SCORM_12_NAMESPACES = {
+    "xmlns": "http://www.imsproject.org/xsd/imscp_rootv1p1p2",
+    "xmlns:adlcp": "http://www.adlnet.org/xsd/adlcp_rootv1p2",
+    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+    "xsi:schemaLocation": (
+        "http://www.imsproject.org/xsd/imscp_rootv1p1p2 imscp_rootv1p1p2.xsd "
+        "http://www.imsglobal.org/xsd/imsmd_rootv1p2p1 imsmd_rootv1p2p1.xsd "
+        "http://www.adlnet.org/xsd/adlcp_rootv1p2 adlcp_rootv1p2.xsd"
+    ),
+}
+SCORM_2004_NAMESPACES = {
+    "xmlns": "http://www.imsglobal.org/xsd/imscp_v1p1",
+    "xmlns:adlcp": "http://www.adlnet.org/xsd/adlcp_v1p3",
+    "xmlns:adlseq": "http://www.adlnet.org/xsd/adlseq_v1p3",
+    "xmlns:imsss": "http://www.imsglobal.org/xsd/imsss",
+    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+    "xsi:schemaLocation": (
+        "http://www.imsglobal.org/xsd/imscp_v1p1 imscp_v1p1.xsd "
+        "http://www.adlnet.org/xsd/adlcp_v1p3 adlcp_v1p3.xsd "
+        "http://www.adlnet.org/xsd/adlseq_v1p3 adlseq_v1p3.xsd "
+        "http://www.imsglobal.org/xsd/imsss imsss_v1p0.xsd"
+    ),
+}
+
+
+@dataclass(frozen=True)
+class ScormManifestSettings:
+    """Настройки манифеста SCORM для выбранной версии."""
+
+    schema_version: str
+    namespaces: Dict[str, str]
+    scorm_type_attribute: str
+
+
+@dataclass(frozen=True)
+class ScormDataModelKeys:
+    """Имена элементов модели данных SCORM для выбранной версии."""
+
+    completion_status: str
+    success_status: Optional[str]
+    location: str
+    score_raw: str
+    score_min: str
+    score_max: str
+
+
+def normalize_scorm_version(scorm_version: str) -> str:
+    """Нормализует версию SCORM до поддерживаемого значения.
+
+    Args:
+        scorm_version: Версия SCORM (например, "1.2" или "2004").
+
+    Returns:
+        str: Нормализованная версия SCORM.
+
+    Raises:
+        ValueError: Если версия SCORM не поддерживается.
+    """
+    normalized = scorm_version.strip().lower()
+    if normalized in {"1.2", "1_2", "1-2", "12"}:
+        return SCORM_VERSION_12
+    if normalized in {"2004", "scorm2004", "scorm_2004", "scorm-2004"}:
+        return SCORM_VERSION_2004
+    raise ValueError(f"Неподдерживаемая версия SCORM: {scorm_version}")
+
+
+def get_manifest_settings(scorm_version: str) -> ScormManifestSettings:
+    """Возвращает настройки манифеста для указанной версии SCORM.
+
+    Args:
+        scorm_version: Версия SCORM.
+
+    Returns:
+        ScormManifestSettings: Настройки манифеста.
+    """
+    normalized_version = normalize_scorm_version(scorm_version)
+    if normalized_version == SCORM_VERSION_12:
+        return ScormManifestSettings(
+            schema_version=SCORM_MANIFEST_SCHEMA_12,
+            namespaces=SCORM_12_NAMESPACES,
+            scorm_type_attribute=SCORM_12_SCORMTYPE_ATTR,
+        )
+    return ScormManifestSettings(
+        schema_version=SCORM_MANIFEST_SCHEMA_2004,
+        namespaces=SCORM_2004_NAMESPACES,
+        scorm_type_attribute=SCORM_2004_SCORMTYPE_ATTR,
+    )
+
+
+def get_scorm_data_model_keys(scorm_version: str) -> ScormDataModelKeys:
+    """Возвращает ключи модели данных SCORM для указанной версии.
+
+    Args:
+        scorm_version: Версия SCORM.
+
+    Returns:
+        ScormDataModelKeys: Имена элементов модели данных.
+    """
+    normalized_version = normalize_scorm_version(scorm_version)
+    if normalized_version == SCORM_VERSION_12:
+        return ScormDataModelKeys(
+            completion_status="cmi.core.lesson_status",
+            success_status=None,
+            location="cmi.core.lesson_location",
+            score_raw="cmi.core.score.raw",
+            score_min="cmi.core.score.min",
+            score_max="cmi.core.score.max",
+        )
+    return ScormDataModelKeys(
+        completion_status="cmi.completion_status",
+        success_status="cmi.success_status",
+        location="cmi.location",
+        score_raw="cmi.score.raw",
+        score_min="cmi.score.min",
+        score_max="cmi.score.max",
+    )
 
 # Импортируем HeyGen сервис для получения URL видео, если его нет в БД
 try:
@@ -40,28 +164,38 @@ def escape_xml(text: str) -> str:
     return html_module.escape(text, quote=False)
 
 
-def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str, str] = None) -> str:
-    """Создает imsmanifest.xml для SCORM 1.2 (совместимый с iSpring)"""
-    
+def create_scorm_manifest(
+    course: Course,
+    course_id: int,
+    video_files: Dict[str, str] = None,
+    scorm_version: str = SCORM_VERSION_12,
+) -> str:
+    """Создает imsmanifest.xml для SCORM пакета.
+
+    Args:
+        course: Курс для экспорта.
+        course_id: ID курса в базе данных.
+        video_files: Словарь с видео файлами (если включены).
+        scorm_version: Версия SCORM (1.2 или 2004).
+
+    Returns:
+        str: Содержимое imsmanifest.xml.
+    """
+    settings = get_manifest_settings(scorm_version)
+
     # Создаем корневой элемент manifest
-    # Используем стандартные namespace для SCORM 1.2 (совместимо с iSpring)
     manifest = ET.Element("manifest")
     manifest.set("identifier", f"course_{course_id}")
     manifest.set("version", "1.0")
-    manifest.set("xmlns", "http://www.imsproject.org/xsd/imscp_rootv1p1p2")
-    manifest.set("xmlns:adlcp", "http://www.adlnet.org/xsd/adlcp_rootv1p2")
-    manifest.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
-    manifest.set("xsi:schemaLocation", 
-                 "http://www.imsproject.org/xsd/imscp_rootv1p1p2 imscp_rootv1p1p2.xsd "
-                 "http://www.imsglobal.org/xsd/imsmd_rootv1p2p1 imsmd_rootv1p2p1.xsd "
-                 "http://www.adlnet.org/xsd/adlcp_rootv1p2 adlcp_rootv1p2.xsd")
+    for key, value in settings.namespaces.items():
+        manifest.set(key, value)
     
-    # Метаданные (обязательные для SCORM 1.2)
+    # Метаданные (обязательные для SCORM)
     metadata = ET.SubElement(manifest, "metadata")
     schema = ET.SubElement(metadata, "schema")
     schema.text = "ADL SCORM"
     schemaversion = ET.SubElement(metadata, "schemaversion")
-    schemaversion.text = "1.2"
+    schemaversion.text = settings.schema_version
     
     # Организация
     organizations = ET.SubElement(manifest, "organizations")
@@ -104,7 +238,7 @@ def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str,
             resource = ET.SubElement(resources, "resource")
             resource.set("identifier", f"RES_{resource_counter}")
             resource.set("type", "webcontent")
-            resource.set("adlcp:scormtype", "sco")
+            resource.set(settings.scorm_type_attribute, "sco")
             resource.set("href", f"lessons/lesson_{module.module_number}_{lesson_idx}.html")
             
             # Файл HTML урока (обязательный)
@@ -133,8 +267,15 @@ def create_scorm_manifest(course: Course, course_id: int, video_files: Dict[str,
     return xml_str
 
 
-def create_scorm_api_js() -> str:
-    """Создает SCORM API JavaScript wrapper"""
+def create_scorm_api_js(scorm_version: str = SCORM_VERSION_12) -> str:
+    """Создает SCORM API JavaScript wrapper для выбранной версии."""
+    normalized_version = normalize_scorm_version(scorm_version)
+    if normalized_version == SCORM_VERSION_12:
+        return _create_scorm_12_api_js()
+    return _create_scorm_2004_api_js()
+
+
+def _create_scorm_12_api_js() -> str:
     return """/*
 SCORM API Wrapper для SCORM 1.2
 Обеспечивает взаимодействие с LMS через SCORM API
@@ -249,6 +390,120 @@ window.addEventListener('beforeunload', function() {
 """
 
 
+def _create_scorm_2004_api_js() -> str:
+    return """/*
+SCORM API Wrapper для SCORM 2004
+Обеспечивает взаимодействие с LMS через SCORM 2004 API
+*/
+
+var API_1484_11 = null;
+
+function findAPI(win) {
+    var findAttempts = 0;
+    var findAttemptLimit = 500;
+    var traceMsgPrefix = "SCORM2004.API.findAPI.";
+    
+    while ((win.API_1484_11 == null) && (win.parent != null) && (win.parent != win)) {
+        findAttempts++;
+        if (findAttempts > findAttemptLimit) {
+            return null;
+        }
+        win = win.parent;
+    }
+    return win.API_1484_11;
+}
+
+function getAPI() {
+    var theAPI = findAPI(window);
+    if ((theAPI == null) && (window.top != null) && (window.top.opener != null)) {
+        theAPI = findAPI(window.top.opener);
+    }
+    if (theAPI == null) {
+        theAPI = findAPI(window.top);
+    }
+    return theAPI;
+}
+
+function SCORM_API_Initialize(parameter) {
+    API_1484_11 = getAPI();
+    if (API_1484_11 == null) {
+        return "false";
+    }
+    var result = API_1484_11.Initialize(parameter);
+    return String(result);
+}
+
+function SCORM_API_GetValue(parameter) {
+    if (API_1484_11 == null) {
+        return "";
+    }
+    var result = API_1484_11.GetValue(parameter);
+    return String(result);
+}
+
+function SCORM_API_SetValue(parameter, value) {
+    if (API_1484_11 == null) {
+        return "false";
+    }
+    var result = API_1484_11.SetValue(parameter, value);
+    return String(result);
+}
+
+function SCORM_API_Commit(parameter) {
+    if (API_1484_11 == null) {
+        return "false";
+    }
+    var result = API_1484_11.Commit(parameter);
+    return String(result);
+}
+
+function SCORM_API_GetLastError() {
+    if (API_1484_11 == null) {
+        return "0";
+    }
+    var result = API_1484_11.GetLastError();
+    return String(result);
+}
+
+function SCORM_API_GetErrorString(errorCode) {
+    if (API_1484_11 == null) {
+        return "";
+    }
+    var result = API_1484_11.GetErrorString(errorCode);
+    return String(result);
+}
+
+function SCORM_API_GetDiagnostic(errorCode) {
+    if (API_1484_11 == null) {
+        return "";
+    }
+    var result = API_1484_11.GetDiagnostic(errorCode);
+    return String(result);
+}
+
+function SCORM_API_Terminate(parameter) {
+    if (API_1484_11 == null) {
+        return "false";
+    }
+    var result = API_1484_11.Terminate(parameter);
+    return String(result);
+}
+
+// Инициализация при загрузке страницы
+window.addEventListener('load', function() {
+    SCORM_API_Initialize("");
+    SCORM_API_SetValue("cmi.completion_status", "incomplete");
+});
+
+// Сохранение прогресса при закрытии
+window.addEventListener('beforeunload', function() {
+    SCORM_API_SetValue("cmi.completion_status", "completed");
+    SCORM_API_Commit("");
+    SCORM_API_Terminate("");
+});
+"""
+
+
 def create_lesson_html(
     course: Course,
     module: Module,
@@ -257,9 +512,36 @@ def create_lesson_html(
     content_data: Dict[str, Any] = None,
     include_video: bool = False,
     video_filename: Optional[str] = None,
-    test_data: Dict[str, Any] = None
+    test_data: Dict[str, Any] = None,
+    scorm_version: str = SCORM_VERSION_12,
 ) -> str:
-    """Создает HTML страницу для урока со слайдами"""
+    """Создает HTML страницу для урока со слайдами.
+
+    Args:
+        course: Курс, к которому относится урок.
+        module: Модуль, в котором находится урок.
+        lesson: Объект урока.
+        lesson_index: Индекс урока в модуле.
+        content_data: Детальный контент урока.
+        include_video: Нужно ли включать видео.
+        video_filename: Имя видео файла в пакете.
+        test_data: Данные теста, если они есть.
+        scorm_version: Версия SCORM (1.2 или 2004).
+
+    Returns:
+        str: HTML страница урока.
+    """
+    
+    scorm_keys = get_scorm_data_model_keys(scorm_version)
+    if scorm_keys.success_status:
+        scorm_status_update_js = (
+            f"                SCORM_API_SetValue('{scorm_keys.success_status}', passed ? 'passed' : 'failed');\n"
+            f"                SCORM_API_SetValue('{scorm_keys.completion_status}', 'completed');\n"
+        )
+    else:
+        scorm_status_update_js = (
+            f"                SCORM_API_SetValue('{scorm_keys.completion_status}', passed ? 'passed' : 'failed');\n"
+        )
     
     slides_html = ""
     navigation_html = ""
@@ -467,11 +749,10 @@ def create_lesson_html(
             
             // Сохраняем результат в SCORM
             if (typeof SCORM_API_SetValue === 'function') {{
-                SCORM_API_SetValue('cmi.core.score.raw', String(score));
-                SCORM_API_SetValue('cmi.core.score.max', '100');
-                SCORM_API_SetValue('cmi.core.score.min', '0');
-                SCORM_API_SetValue('cmi.core.lesson_status', passed ? 'passed' : 'failed');
-                SCORM_API_Commit('');
+                SCORM_API_SetValue('{scorm_keys.score_raw}', String(score));
+                SCORM_API_SetValue('{scorm_keys.score_max}', '100');
+                SCORM_API_SetValue('{scorm_keys.score_min}', '0');
+{scorm_status_update_js}                SCORM_API_Commit('');
             }}
             
             testChecked = true;
@@ -760,7 +1041,7 @@ def create_lesson_html(
             
             // Сохраняем прогресс в SCORM
             if (typeof SCORM_API_SetValue === 'function') {{
-                SCORM_API_SetValue('cmi.core.lesson_location', String(index));
+                SCORM_API_SetValue('{scorm_keys.location}', String(index));
             }}
         }}
         
@@ -787,7 +1068,7 @@ def create_lesson_html(
         // Сохранение прогресса при закрытии
         window.addEventListener('beforeunload', function() {{
             if (typeof SCORM_API_SetValue === 'function') {{
-                SCORM_API_SetValue('cmi.core.lesson_status', 'completed');
+                SCORM_API_SetValue('{scorm_keys.completion_status}', 'completed');
                 SCORM_API_Commit('');
                 SCORM_API_Terminate('');
             }}
@@ -870,25 +1151,32 @@ def download_video_via_heygen_api(video_id: str, heygen_service) -> Optional[byt
         return None
 
 
-def export_course_scorm(course: Course, course_id: int, include_videos: bool = False) -> bytes:
+def export_course_scorm(
+    course: Course,
+    course_id: int,
+    include_videos: bool = False,
+    scorm_version: str = SCORM_VERSION_12,
+) -> bytes:
     """
-    Экспортирует курс в формат SCORM 1.2 (ZIP архив)
+    Экспортирует курс в формат SCORM (ZIP архив).
     
     Args:
-        course: Объект курса
-        course_id: ID курса в базе данных
-        include_videos: Включать ли видео в пакет
+        course: Объект курса.
+        course_id: ID курса в базе данных.
+        include_videos: Включать ли видео в пакет.
+        scorm_version: Версия SCORM (1.2 или 2004).
         
     Returns:
-        bytes: ZIP архив с SCORM пакетом
+        bytes: ZIP архив с SCORM пакетом.
     """
+    normalized_version = normalize_scorm_version(scorm_version)
     zip_buffer = BytesIO()
     video_files = {}  # Словарь для хранения информации о видео файлах
     
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         
         # 2. Создаем папку scripts и добавляем SCORM API
-        scorm_api_js = create_scorm_api_js()
+        scorm_api_js = create_scorm_api_js(normalized_version)
         zip_file.writestr("scripts/SCORM_API_wrapper.js", scorm_api_js.encode('utf-8'))
         
         # 3. Создаем HTML файлы для каждого урока и скачиваем видео (если нужно)
@@ -1092,7 +1380,8 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
                     content_data=content_data,
                     include_video=include_videos and video_filename is not None,
                     video_filename=video_filename,
-                    test_data=test_data
+                    test_data=test_data,
+                    scorm_version=normalized_version,
                 )
                 
                 # Сохраняем в ZIP
@@ -1212,7 +1501,12 @@ def export_course_scorm(course: Course, course_id: int, include_videos: bool = F
         zip_file.writestr("index.html", start_page.encode('utf-8'))
         
         # 1. Создаем imsmanifest.xml (после того, как все файлы добавлены)
-        manifest_xml = create_scorm_manifest(course, course_id, video_files)
+        manifest_xml = create_scorm_manifest(
+            course,
+            course_id,
+            video_files=video_files,
+            scorm_version=normalized_version,
+        )
         zip_file.writestr("imsmanifest.xml", manifest_xml.encode('utf-8'))
     
     zip_buffer.seek(0)
