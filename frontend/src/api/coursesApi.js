@@ -68,6 +68,15 @@ export const coursesApi = {
     return response.data
   },
 
+  // Сгенерировать тесты для всех уроков модуля
+  generateModuleTests: async (courseId, moduleNumber, payload = {}) => {
+    const response = await api.post(
+      `/api/courses/${courseId}/modules/${moduleNumber}/generate-tests`,
+      payload
+    )
+    return response.data
+  },
+
   // Получить контент модуля
   getModuleContent: async (courseId, moduleNumber) => {
     const response = await api.get(

@@ -9,7 +9,8 @@
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List
 import logging
 import json
 
@@ -17,6 +18,7 @@ from backend.models.domain import Course, Module
 from backend.ai.content_generator import ContentGenerator
 from backend.database import db
 from backend.services.generation_service import generation_service
+from backend.services.test_generator_service import TestGeneratorService
 from backend.services.export_service import export_service
 from backend.utils.formatters import safe_filename, format_content_disposition
 from fastapi.responses import Response
@@ -27,6 +29,7 @@ router = APIRouter(prefix="/api/courses", tags=["modules"])
 
 # Инициализируем генератор контента
 content_generator = ContentGenerator()
+test_generator = TestGeneratorService()
 class DuplicateModuleRequest(BaseModel):
     """Тело запроса для дублирования модуля.
 
@@ -34,6 +37,58 @@ class DuplicateModuleRequest(BaseModel):
     """
     module_title: str
     module_goal: str
+
+
+class GenerateModuleTestsRequest(BaseModel):
+    """Запрос на генерацию тестов для всех уроков модуля."""
+
+    num_questions: int = Field(default=10, ge=5, le=20, description="Количество вопросов в тесте")
+    model: Optional[str] = Field(default=None, description="Модель AI")
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0, description="Температура")
+    max_tokens: Optional[int] = Field(default=None, ge=100, description="Макс. токенов")
+
+
+def build_module_content_from_lessons(
+    course_id: int,
+    module: Module,
+) -> Dict[str, Any]:
+    lectures: List[Dict[str, Any]] = []
+    total_slides = 0
+    total_duration = 0
+
+    for lesson_index, lesson in enumerate(module.lessons):
+        lesson_content = db.get_lesson_content(course_id, module.module_number, lesson_index)
+        if not lesson_content:
+            continue
+
+        slides = lesson_content.get("slides", [])
+        if not isinstance(slides, list):
+            slides = []
+
+        duration_minutes = lesson_content.get("duration_minutes", lesson.estimated_time_minutes)
+        if not isinstance(duration_minutes, (int, float)):
+            duration_minutes = lesson.estimated_time_minutes
+
+        lecture = {
+            "lecture_title": lesson_content.get("lecture_title", lesson.lesson_title),
+            "module_number": module.module_number,
+            "module_title": module.module_title,
+            "duration_minutes": int(duration_minutes) if duration_minutes else 0,
+            "learning_objectives": lesson_content.get("learning_objectives", []),
+            "key_takeaways": lesson_content.get("key_takeaways", []),
+            "slides": slides,
+        }
+        lectures.append(lecture)
+        total_slides += len(slides)
+        total_duration += lecture["duration_minutes"]
+
+    return {
+        "module_number": module.module_number,
+        "module_title": module.module_title,
+        "lectures": lectures,
+        "total_slides": total_slides,
+        "estimated_duration_minutes": total_duration,
+    }
 
 
 @router.post("/{course_id}/modules/{module_number}/duplicate", response_model=dict)
@@ -154,7 +209,7 @@ async def delete_module(course_id: int, module_number: int):
 
 @router.post("/{course_id}/modules/{module_number}/generate", response_model=dict)
 async def generate_module_content(course_id: int, module_number: int):
-    """Сгенерировать контент (лекции и слайды) для модуля"""
+    """Сгенерировать детальный контент для всех уроков модуля"""
     try:
         course_data = db.get_course(course_id)
         if not course_data:
@@ -176,40 +231,153 @@ async def generate_module_content(course_id: int, module_number: int):
         if not module:
             raise HTTPException(status_code=404, detail="Модуль не найден")
         
-        logger.info(f"Генерация контента для модуля {module_number} курса {course_id}")
-        
-        module_content = await run_in_threadpool(
-            content_generator.generate_module_content,
-            module=module,
-            course_title=course.course_title,
-            target_audience=course.target_audience,
-        )
-        
-        if not module_content:
+        logger.info(f"Генерация контента уроков для модуля {module_number} курса {course_id}")
+
+        generated_lessons = []
+        skipped_lessons = []
+        failed_lessons = []
+
+        for lesson_index, lesson in enumerate(module.lessons):
+            existing_content = db.get_lesson_content(course_id, module.module_number, lesson_index)
+            if existing_content:
+                skipped_lessons.append(lesson_index)
+                continue
+
+            logger.info(
+                f"Генерация детального контента для урока {lesson_index} "
+                f"модуля {module_number} курса {course_id}"
+            )
+            lesson_content = await run_in_threadpool(
+                content_generator.generate_lesson_detailed_content,
+                lesson=lesson,
+                module=module,
+                course_title=course.course_title,
+                target_audience=course.target_audience,
+            )
+
+            if not lesson_content:
+                failed_lessons.append(lesson_index)
+                continue
+
+            db.save_lesson_content(
+                course_id=course_id,
+                module_number=module_number,
+                lesson_index=lesson_index,
+                lesson_title=lesson.lesson_title,
+                content_data=lesson_content,
+            )
+            generated_lessons.append(lesson_index)
+
+        module_content = build_module_content_from_lessons(course_id, module)
+        if not module_content.get("lectures"):
             raise HTTPException(
                 status_code=500,
                 detail="Не удалось сгенерировать контент модуля"
             )
-        
+
         db.save_module_content(
             course_id=course_id,
             module_number=module_number,
             module_title=module.module_title,
-            content_data=module_content.dict()
+            content_data=module_content,
         )
-        
-        logger.info(f"✅ Контент модуля {module_number} сгенерирован и сохранен")
-        
+
+        logger.info(f"✅ Контент модуля {module_number} обновлен и сохранен")
+
         return {
-            "status": "generated",
+            "status": "generated" if not failed_lessons else "partial",
             "message": f"Контент модуля '{module.module_title}' сгенерирован",
-            "module_content": module_content.dict()
+            "module_content": module_content,
+            "generated_lessons": generated_lessons,
+            "skipped_lessons": skipped_lessons,
+            "failed_lessons": failed_lessons,
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Ошибка генерации контента модуля: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{course_id}/modules/{module_number}/generate-tests", response_model=dict)
+async def generate_module_tests(
+    course_id: int,
+    module_number: int,
+    body: GenerateModuleTestsRequest = GenerateModuleTestsRequest(),
+):
+    """Сгенерировать тесты для всех уроков модуля, где их еще нет."""
+    try:
+        course_data = db.get_course(course_id)
+        if not course_data:
+            raise HTTPException(status_code=404, detail="Курс не найден")
+
+        course_data.pop('id', None)
+        course_data.pop('created_at', None)
+        course_data.pop('updated_at', None)
+
+        course = Course(**course_data)
+
+        module = None
+        for m in course.modules:
+            if m.module_number == module_number:
+                module = m
+                break
+
+        if not module:
+            raise HTTPException(status_code=404, detail="Модуль не найден")
+
+        logger.info(f"Генерация тестов для модуля {module_number} курса {course_id}")
+
+        generated_lessons = []
+        skipped_lessons = []
+        failed_lessons = []
+
+        for lesson_index, lesson in enumerate(module.lessons):
+            existing_test = db.get_lesson_test(course_id, module_number, lesson_index)
+            if existing_test:
+                skipped_lessons.append(lesson_index)
+                continue
+
+            test = await run_in_threadpool(
+                test_generator.generate_test,
+                lesson_title=lesson.lesson_title,
+                lesson_goal=lesson.lesson_goal,
+                content_outline=lesson.content_outline,
+                course_title=course.course_title,
+                target_audience=course.target_audience,
+                module_title=module.module_title,
+                num_questions=body.num_questions,
+                model=body.model,
+                temperature=body.temperature,
+                max_tokens=body.max_tokens,
+            )
+
+            if not test:
+                failed_lessons.append(lesson_index)
+                continue
+
+            db.save_lesson_test(
+                course_id=course_id,
+                module_number=module_number,
+                lesson_index=lesson_index,
+                lesson_title=lesson.lesson_title,
+                test_data=test.dict(),
+            )
+            generated_lessons.append(lesson_index)
+
+        return {
+            "status": "generated" if not failed_lessons else "partial",
+            "message": f"Тесты для модуля '{module.module_title}' сгенерированы",
+            "generated_lessons": generated_lessons,
+            "skipped_lessons": skipped_lessons,
+            "failed_lessons": failed_lessons,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка генерации тестов модуля: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -27,7 +27,8 @@ import {
   ThunderboltOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
-  DownloadOutlined
+  DownloadOutlined,
+  FileAddOutlined
 } from '@ant-design/icons'
 import { coursesApi } from '../api/coursesApi'
 import LessonItem from '../components/LessonItem'
@@ -41,6 +42,7 @@ function CourseViewPage() {
   const [course, setCourse] = useState(null)
   const [loading, setLoading] = useState(true)
   const [generatingModule, setGeneratingModule] = useState(null)
+  const [generatingModuleTests, setGeneratingModuleTests] = useState(null)
   const [isEditModalVisible, setIsEditModalVisible] = useState(false)
   const [editForm, setEditForm] = useState(null)
   const [editModuleModal, setEditModuleModal] = useState({ visible: false, module: null })
@@ -134,7 +136,14 @@ function CourseViewPage() {
     try {
       const courseId = parseInt(id, 10)
       const response = await coursesApi.generateModuleContent(courseId, moduleNumber)
-      message.success('Контент модуля успешно сгенерирован!')
+      const failedCount = response.failed_lessons?.length || 0
+      const skippedCount = response.skipped_lessons?.length || 0
+      const generatedCount = response.generated_lessons?.length || 0
+      if (failedCount > 0) {
+        message.warning(`Контент модуля сгенерирован частично. Сгенерировано: ${generatedCount}, пропущено: ${skippedCount}, ошибки: ${failedCount}`)
+      } else {
+        message.success('Контент модуля успешно сгенерирован!')
+      }
       
       // Показываем модальное окно с результатом
       Modal.info({
@@ -148,11 +157,38 @@ function CourseViewPage() {
           </div>
         ),
       })
+      setContentRefreshKey((prev) => prev + 1)
     } catch (error) {
       console.error('Error generating content:', error)
       message.error('Ошибка генерации контента')
     } finally {
       setGeneratingModule(null)
+    }
+  }
+
+  const handleGenerateModuleTests = async (moduleNumber) => {
+    if (!id || id === 'null' || id === 'undefined') {
+      message.error('Неверный ID курса')
+      return
+    }
+    setGeneratingModuleTests(moduleNumber)
+    try {
+      const courseId = parseInt(id, 10)
+      const response = await coursesApi.generateModuleTests(courseId, moduleNumber, { num_questions: 10 })
+      const failedCount = response.failed_lessons?.length || 0
+      const skippedCount = response.skipped_lessons?.length || 0
+      const generatedCount = response.generated_lessons?.length || 0
+      if (failedCount > 0) {
+        message.warning(`Тесты сгенерированы частично. Сгенерировано: ${generatedCount}, пропущено: ${skippedCount}, ошибки: ${failedCount}`)
+      } else {
+        message.success('Тесты модуля успешно сгенерированы!')
+      }
+      setContentRefreshKey((prev) => prev + 1)
+    } catch (error) {
+      console.error('Error generating module tests:', error)
+      message.error('Ошибка генерации тестов модуля')
+    } finally {
+      setGeneratingModuleTests(null)
     }
   }
 
@@ -956,6 +992,13 @@ function CourseViewPage() {
                       onClick={() => handleGenerateContent(module.module_number)}
                     >
                       Сгенерировать детальный контент (лекции и слайды)
+                    </Button>
+                    <Button
+                      icon={<FileAddOutlined />}
+                      loading={generatingModuleTests === module.module_number}
+                      onClick={() => handleGenerateModuleTests(module.module_number)}
+                    >
+                      Сгенерировать тесты
                     </Button>
                     <Button
                       icon={<BookOutlined />}
