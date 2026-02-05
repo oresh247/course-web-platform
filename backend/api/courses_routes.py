@@ -8,6 +8,7 @@
 - `logging` — логирование действий и ошибок для диагностики.
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from typing import List
 import logging
 import json
@@ -36,13 +37,14 @@ async def create_course(request: CourseCreateRequest):
     try:
         logger.info(f"Создание курса: {request.topic}")
         
-        course_data = openai_client.generate_course_structure(
+        course_data = await run_in_threadpool(
+            openai_client.generate_course_structure,
             topic=request.topic,
-            course_goals=request.course_goals,
             audience_level=request.audience_level.value,
             module_count=request.module_count,
+            course_goals=request.course_goals,
             duration_weeks=request.duration_weeks,
-            hours_per_week=request.hours_per_week
+            hours_per_week=request.hours_per_week,
         )
         
         if not course_data:
