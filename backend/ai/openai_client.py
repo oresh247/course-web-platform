@@ -57,6 +57,7 @@ class OpenAIClient:
         topic: str, 
         audience_level: str, 
         module_count: int, 
+        course_goals: Optional[str] = None,
         duration_weeks: int = None, 
         hours_per_week: int = None
     ) -> Optional[Dict[str, Any]]:
@@ -66,6 +67,7 @@ class OpenAIClient:
             topic: Тема курса
             audience_level: Уровень аудитории (junior/middle/senior)
             module_count: Количество модулей
+            course_goals: Цели и задачи курса (может быть None)
             duration_weeks: Длительность в неделях
             hours_per_week: Часов в неделю
             
@@ -84,8 +86,11 @@ class OpenAIClient:
             else:
                 duration_text = "8 недель, 5 часов в неделю"
             
+            course_goals_text = course_goals.strip() if course_goals and course_goals.strip() else "Не указаны"
+
             prompt = COURSE_GENERATION_PROMPT_TEMPLATE.format(
                 topic=topic,
+                course_goals=course_goals_text,
                 audience=audience_level,
                 num_modules=module_count,
                 duration=duration_text

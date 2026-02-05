@@ -113,6 +113,16 @@ function CreateCoursePage() {
             </Form.Item>
 
             <Form.Item
+              label="Цели курса"
+              name="course_goals"
+            >
+              <TextArea
+                placeholder="Опишите цели и задачи курса, можно списком"
+                autoSize={{ minRows: 3, maxRows: 8 }}
+              />
+            </Form.Item>
+
+            <Form.Item
               label="Уровень аудитории"
               name="audience_level"
               rules={[{ required: true, message: 'Выберите уровень' }]}

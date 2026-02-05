@@ -131,6 +131,7 @@ class Module(BaseModel):
 class Course(BaseModel):
     """Структура курса"""
     course_title: str = Field(..., description="Название курса")
+    course_goals: Optional[str] = Field(default=None, description="Цели курса")
     target_audience: str = Field(..., description="Целевая аудитория")
     duration_hours: Optional[int] = Field(default=None, ge=1)
     duration_weeks: Optional[int] = Field(default=None, ge=1)
@@ -191,6 +192,11 @@ class GeneratedLecture(BaseModel):
 class CourseCreateRequest(BaseModel):
     """Запрос на создание курса"""
     topic: str = Field(..., min_length=3, max_length=200, description="Тема курса")
+    course_goals: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Цели и задачи курса",
+    )
     audience_level: DifficultyLevel = Field(..., description="Уровень аудитории")
     module_count: int = Field(..., ge=2, le=10, description="Количество модулей")
     duration_weeks: Optional[int] = Field(default=8, ge=1, le=52)

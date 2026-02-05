@@ -38,6 +38,7 @@ async def create_course(request: CourseCreateRequest):
         
         course_data = openai_client.generate_course_structure(
             topic=request.topic,
+            course_goals=request.course_goals,
             audience_level=request.audience_level.value,
             module_count=request.module_count,
             duration_weeks=request.duration_weeks,
@@ -59,6 +60,9 @@ async def create_course(request: CourseCreateRequest):
                 course_data["duration_hours"] = request.hours_per_week
         if request.duration_weeks is not None:
             course_data["duration_weeks"] = request.duration_weeks
+
+        if request.course_goals:
+            course_data["course_goals"] = request.course_goals
 
         course = Course(**course_data)
         course_id = db.save_course(course.dict())

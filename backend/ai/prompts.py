@@ -13,6 +13,7 @@ COURSE_GENERATION_SYSTEM_PROMPT = """Ты — эксперт по создани
 COURSE_GENERATION_PROMPT_TEMPLATE = """Создай структуру IT-курса по следующим параметрам:
 
 ТЕМА: {topic}
+ЦЕЛИ КУРСА: {course_goals}
 АУДИТОРИЯ: {audience}
 КОЛИЧЕСТВО МОДУЛЕЙ: {num_modules}
 ДЛИТЕЛЬНОСТЬ: {duration}
@@ -23,10 +24,13 @@ COURSE_GENERATION_PROMPT_TEMPLATE = """Создай структуру IT-кур
 - Уроки должны иметь разные форматы: theory, practice, lab, quiz, project
 - Указывай время в минутах для каждого урока
 - ВАЖНО: estimated_time_minutes должен быть не менее 15 минут и не более 480 минут (от 15 до 480)
+- Если в целях курса перечислены темы или навыки, распределяй их по модулям так,
+  чтобы уложиться в указанное количество модулей. Не добавляй лишние модули.
 
 ФОРМАТ ОТВЕТА: строго JSON
 {{
   "course_title": "название курса",
+  "course_goals": "{course_goals}",
   "target_audience": "{audience}",
   "modules": [
     {{
