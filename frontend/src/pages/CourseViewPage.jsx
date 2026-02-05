@@ -991,7 +991,7 @@ function CourseViewPage() {
                       loading={generatingModule === module.module_number}
                       onClick={() => handleGenerateContent(module.module_number)}
                     >
-                      Сгенерировать детальный контент (лекции и слайды)
+                      Сгенерировать слайды
                     </Button>
                     <Button
                       icon={<FileAddOutlined />}
@@ -1005,7 +1005,7 @@ function CourseViewPage() {
                       loading={loadingContent}
                       onClick={() => handleViewDetailContent(module.module_number)}
                     >
-                      Просмотреть детальный контент
+                      Посмотреть контент
                     </Button>
                     <Dropdown 
                       menu={{ 
@@ -1038,7 +1038,7 @@ function CourseViewPage() {
                       placement="bottomRight"
                     >
                       <Button icon={<DownloadOutlined />}>
-                        Экспортировать детальный контент
+                        Экспортировать
                       </Button>
                     </Dropdown>
                   </Space>
