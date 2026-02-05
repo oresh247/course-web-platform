@@ -729,6 +729,17 @@ function CourseViewPage() {
   }
 
   // Экспорт детального контента урока
+  const normalizeSlideText = (value) => {
+    if (typeof value !== 'string') {
+      return value
+    }
+    return value.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+  }
+
+  const renderSlideContent = (value) => (
+    <Paragraph style={{ whiteSpace: 'pre-line' }}>{normalizeSlideText(value)}</Paragraph>
+  )
+
   const handleExportLessonContent = (moduleNumber, lessonIndex, format) => {
     const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
     const url = `${baseUrl}/api/courses/${id}/modules/${moduleNumber}/lessons/${lessonIndex}/export/${format}`
@@ -1395,7 +1406,7 @@ function CourseViewPage() {
                         description={
                           <div>
                             {(slide.slide_content || slide.content) && (
-                              <Paragraph>{slide.slide_content || slide.content}</Paragraph>
+                              renderSlideContent(slide.slide_content || slide.content)
                             )}
                             {slide.code_example && (
                               <pre style={{ 
@@ -1405,7 +1416,7 @@ function CourseViewPage() {
                                 borderRadius: 4,
                                 overflow: 'auto'
                               }}>
-                                <code>{slide.code_example}</code>
+                                <code>{normalizeSlideText(slide.code_example)}</code>
                               </pre>
                             )}
                             {slide.visual_description && (
@@ -1485,7 +1496,7 @@ function CourseViewPage() {
                     description={
                       <div>
                         {(slide.slide_content || slide.content) && (
-                          <Paragraph>{slide.slide_content || slide.content}</Paragraph>
+                          renderSlideContent(slide.slide_content || slide.content)
                         )}
                         {slide.code_example && (
                           <pre style={{ 
@@ -1495,7 +1506,7 @@ function CourseViewPage() {
                             borderRadius: 4,
                             overflow: 'auto'
                           }}>
-                            <code>{slide.code_example}</code>
+                            <code>{normalizeSlideText(slide.code_example)}</code>
                           </pre>
                         )}
                         {slide.notes && (
