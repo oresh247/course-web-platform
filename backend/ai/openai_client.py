@@ -89,6 +89,7 @@ class OpenAIClient:
             course_goals_text = course_goals.strip() if course_goals and course_goals.strip() else "Не указаны"
 
             from backend.config import settings
+            model = settings.OPENAI_MODEL_DEFAULT
 
             for attempt in range(2):
                 prompt = COURSE_GENERATION_PROMPT_TEMPLATE.format(
@@ -103,21 +104,15 @@ class OpenAIClient:
 
                 logger.info(f"Генерируем структуру курса: {topic} для {audience_level}")
 
-                response = self.client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": COURSE_GENERATION_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
+                json_content = self.call_ai_json(
+                    system_prompt=COURSE_GENERATION_SYSTEM_PROMPT,
+                    user_prompt=prompt,
+                    model=model,
+                    temperature=0.7,
                     max_tokens=settings.OPENAI_MAX_TOKENS_DEFAULT,
-                    temperature=0.7
+                    retries=settings.OPENAI_RETRIES_DEFAULT,
+                    backoff_seconds=settings.OPENAI_BACKOFF_SECONDS_DEFAULT,
                 )
-
-                content = response.choices[0].message.content.strip()
-                logger.info(f"Получен ответ от OpenAI ({len(content)} символов)")
-
-                # Извлекаем JSON из ответа
-                json_content = self._extract_json_from_response(content)
 
                 if not json_content:
                     logger.error("Не удалось извлечь JSON из ответа OpenAI")
