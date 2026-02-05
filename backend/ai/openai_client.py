@@ -13,7 +13,7 @@ import json
 import logging
 import httpx
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -88,41 +88,56 @@ class OpenAIClient:
             
             course_goals_text = course_goals.strip() if course_goals and course_goals.strip() else "Не указаны"
 
-            prompt = COURSE_GENERATION_PROMPT_TEMPLATE.format(
-                topic=topic,
-                course_goals=course_goals_text,
-                audience=audience_level,
-                num_modules=module_count,
-                duration=duration_text
-            )
-            
-            logger.info(f"Генерируем структуру курса: {topic} для {audience_level}")
-            
             from backend.config import settings
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": COURSE_GENERATION_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=settings.OPENAI_MAX_TOKENS_DEFAULT,
-                temperature=0.7
-            )
-            
-            content = response.choices[0].message.content.strip()
-            logger.info(f"Получен ответ от OpenAI ({len(content)} символов)")
-            
-            # Извлекаем JSON из ответа
-            json_content = self._extract_json_from_response(content)
-            
-            if json_content:
+
+            for attempt in range(2):
+                prompt = COURSE_GENERATION_PROMPT_TEMPLATE.format(
+                    topic=topic,
+                    course_goals=course_goals_text,
+                    audience=audience_level,
+                    num_modules=module_count,
+                    duration=duration_text
+                )
+                if attempt > 0:
+                    prompt = f"{prompt}\n\nКРИТИЧЕСКИ ВАЖНО: верни РОВНО {module_count} модулей."
+
+                logger.info(f"Генерируем структуру курса: {topic} для {audience_level}")
+
+                response = self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": COURSE_GENERATION_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=settings.OPENAI_MAX_TOKENS_DEFAULT,
+                    temperature=0.7
+                )
+
+                content = response.choices[0].message.content.strip()
+                logger.info(f"Получен ответ от OpenAI ({len(content)} символов)")
+
+                # Извлекаем JSON из ответа
+                json_content = self._extract_json_from_response(content)
+
+                if not json_content:
+                    logger.error("Не удалось извлечь JSON из ответа OpenAI")
+                    continue
+
                 # Постобработка: гарантируем, что estimated_time_minutes >= 15 для всех уроков
                 self._normalize_lesson_times(json_content)
+
+                if not self._validate_module_count(json_content, module_count):
+                    logger.warning(
+                        f"Модель вернула неверное количество модулей. "
+                        f"Ожидалось: {module_count}, получено: {len(json_content.get('modules', []))}"
+                    )
+                    continue
+
                 logger.info(f"✅ Структура курса создана: {json_content.get('course_title', 'Без названия')}")
                 return json_content
-            else:
-                logger.error("Не удалось извлечь JSON из ответа OpenAI")
-                return None
+
+            logger.error("Не удалось получить структуру курса с корректным количеством модулей")
+            return None
                 
         except Exception as e:
             logger.error(f"Ошибка при обращении к OpenAI API: {e}")
@@ -187,6 +202,26 @@ class OpenAIClient:
             logger.error(f"Ошибка парсинга JSON: {e}")
             logger.debug(f"Проблемный контент: {content[:500]}...")
             return None
+
+    def _validate_module_count(self, course_data: Dict[str, Any], expected_count: int) -> bool:
+        modules = course_data.get("modules")
+        if not isinstance(modules, list):
+            logger.warning("Поле 'modules' отсутствует или имеет неверный тип")
+            return False
+
+        if len(modules) != expected_count:
+            return False
+
+        module_numbers: List[int] = []
+        for module in modules:
+            if not isinstance(module, dict):
+                return False
+            module_number = module.get("module_number")
+            if not isinstance(module_number, int):
+                return False
+            module_numbers.append(module_number)
+
+        return module_numbers == list(range(1, expected_count + 1))
     
     def call_ai(
         self, 
