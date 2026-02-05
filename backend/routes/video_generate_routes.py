@@ -2,6 +2,7 @@
 Роуты генерации видео (создание/перегенерация, пакетная генерация).
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from typing import Dict, Any
 import logging
 
@@ -54,7 +55,8 @@ async def generate_lesson_with_video_cached(
             f"Генерируем {'новое' if not request.regenerate else 'перегенерированное'} видео"
         )
         try:
-            video_response = heygen_service.create_video_from_text(
+            video_response = await run_in_threadpool(
+                heygen_service.create_video_from_text,
                 text=request.content,
                 avatar_id=request.avatar_id,
                 voice_id=request.voice_id,

@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import os
+from fastapi.concurrency import run_in_threadpool
 from backend.config import settings
 
 from .mock_heygen_service import AdaptiveHeyGenService
@@ -150,12 +151,13 @@ class VideoGenerationService:
         """
         try:
             # Создаем видео через HeyGen
-            video_response = self.heygen_service.create_video_from_text(
+            video_response = await run_in_threadpool(
+                self.heygen_service.create_video_from_text,
                 text=video_config['content'],
                 avatar_id=video_config['avatar_id'],
                 voice_id=video_config['voice_id'],
                 quality=video_config.get('quality', 'low'),
-                test_mode=video_config.get('test_mode', True)
+                test_mode=video_config.get('test_mode', True),
             )
             
             return {
@@ -281,11 +283,12 @@ class VideoGenerationService:
         """
         try:
             # Создаем видео через HeyGen
-            video_response = self.heygen_service.create_lesson_video(
+            video_response = await run_in_threadpool(
+                self.heygen_service.create_lesson_video,
                 lesson_title=video_config['title'],
                 lesson_content=video_config['content'],
                 avatar_id=video_config['avatar_id'],
-                voice_id=video_config['voice_id']
+                voice_id=video_config['voice_id'],
             )
             
             # Проверяем, что видео действительно создано
@@ -325,7 +328,7 @@ class VideoGenerationService:
             Dict с информацией о статусе
         """
         try:
-            status = self.heygen_service.get_video_status(video_id)
+            status = await run_in_threadpool(self.heygen_service.get_video_status, video_id)
 
             # Нормализуем возможные поля статуса от разных реализаций
             raw_status = (
@@ -391,7 +394,11 @@ class VideoGenerationService:
             Dict с финальным статусом
         """
         try:
-            final_status = self.heygen_service.wait_for_video_completion(video_id, max_wait_time)
+            final_status = await run_in_threadpool(
+                self.heygen_service.wait_for_video_completion,
+                video_id,
+                max_wait_time,
+            )
             return {
                 'video_id': video_id,
                 'status': 'completed',
@@ -419,7 +426,7 @@ class VideoGenerationService:
             True если успешно
         """
         try:
-            return self.heygen_service.download_video(video_id, output_path)
+            return await run_in_threadpool(self.heygen_service.download_video, video_id, output_path)
         except Exception as e:
             logger.error(f"Ошибка при скачивании видео {video_id}: {str(e)}")
             return False
@@ -432,7 +439,7 @@ class VideoGenerationService:
             List с информацией об аватарах
         """
         try:
-            avatars_response = self.heygen_service.get_available_avatars()
+            avatars_response = await run_in_threadpool(self.heygen_service.get_available_avatars)
             return avatars_response.get('data', [])
         except Exception as e:
             logger.error(f"Ошибка при получении аватаров: {str(e)}")
@@ -446,7 +453,7 @@ class VideoGenerationService:
             List с информацией о голосах
         """
         try:
-            voices_response = self.heygen_service.get_available_voices()
+            voices_response = await run_in_threadpool(self.heygen_service.get_available_voices)
             data = voices_response.get('data', {})
             
             # Проверяем разные варианты структуры ответа

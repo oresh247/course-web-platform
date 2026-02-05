@@ -451,7 +451,8 @@ async def generate_lesson_test(
         logger.info(f"Генерация теста для урока {lesson_index} модуля {module_number} курса {course_id}")
         
         # Генерируем тест
-        test = test_generator.generate_test(
+        test = await run_in_threadpool(
+            test_generator.generate_test,
             lesson_title=lesson.lesson_title,
             lesson_goal=lesson.lesson_goal,
             content_outline=lesson.content_outline,
@@ -461,7 +462,7 @@ async def generate_lesson_test(
             num_questions=body.num_questions,
             model=body.model,
             temperature=body.temperature,
-            max_tokens=body.max_tokens
+            max_tokens=body.max_tokens,
         )
         
         if not test:
