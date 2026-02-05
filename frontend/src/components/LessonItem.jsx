@@ -54,19 +54,20 @@ const LessonItem = ({
     }
   }, [courseId, moduleNumber, index]);
 
+  const checkDetailContent = async () => {
+    try {
+      if (!courseId || moduleNumber === undefined || index === undefined) return;
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const resp = await fetch(`${baseUrl}/api/courses/${courseId}/modules/${moduleNumber}/lessons/${index}/content`);
+      setHasDetailContent(resp.ok);
+    } catch (e) {
+      setHasDetailContent(false);
+    }
+  };
+
   // Проверяем наличие детального контента для подсветки иконки
   useEffect(() => {
-    const checkDetail = async () => {
-      try {
-        if (!courseId || moduleNumber === undefined || index === undefined) return;
-        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-        const resp = await fetch(`${baseUrl}/api/courses/${courseId}/modules/${moduleNumber}/lessons/${index}/content`);
-        setHasDetailContent(resp.ok);
-      } catch (e) {
-        setHasDetailContent(false);
-      }
-    };
-    checkDetail();
+    checkDetailContent();
   }, [courseId, moduleNumber, index, contentRefreshKey]);
 
   // Проверяем наличие теста для подсветки иконки
@@ -323,7 +324,13 @@ const LessonItem = ({
             size="small" 
             icon={<ThunderboltOutlined />}
             loading={isGenerating}
-            onClick={onGenerateContent}
+            onClick={async () => {
+              try {
+                await onGenerateContent();
+              } finally {
+                await checkDetailContent();
+              }
+            }}
             title="Сгенерировать слайды"
           />
           <LessonVideoGenerator 
