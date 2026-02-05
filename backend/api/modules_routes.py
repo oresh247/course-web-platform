@@ -8,6 +8,7 @@
 - `logging` — логируем шаги и ошибки для последующей диагностики.
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 import logging
 import json
@@ -177,10 +178,11 @@ async def generate_module_content(course_id: int, module_number: int):
         
         logger.info(f"Генерация контента для модуля {module_number} курса {course_id}")
         
-        module_content = content_generator.generate_module_content(
+        module_content = await run_in_threadpool(
+            content_generator.generate_module_content,
             module=module,
             course_title=course.course_title,
-            target_audience=course.target_audience
+            target_audience=course.target_audience,
         )
         
         if not module_content:

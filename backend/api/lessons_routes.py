@@ -8,6 +8,7 @@ AI‑регенерация контента и экспорт.
 - `logging` — логируем ключевые шаги и ошибки.
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Optional
 import logging
@@ -257,11 +258,12 @@ async def generate_lesson_content(course_id: int, module_number: int, lesson_ind
         
         logger.info(f"Генерация контента для урока {lesson_index} модуля {module_number} курса {course_id}")
         
-        lesson_content = content_generator.generate_lesson_detailed_content(
+        lesson_content = await run_in_threadpool(
+            content_generator.generate_lesson_detailed_content,
             lesson=lesson,
             module=module,
             course_title=course.course_title,
-            target_audience=course.target_audience
+            target_audience=course.target_audience,
         )
         
         if not lesson_content:
