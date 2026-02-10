@@ -45,9 +45,13 @@ class ExportService:
     # ========== ЭКСПОРТ КУРСА ==========
     
     @staticmethod
-    def export_course_markdown(course: Course) -> str:
-        """Генерирует Markdown для всего курса"""
-        return _export_course_markdown(course)
+    def export_course_markdown(course: Course, course_id: int = None) -> str:
+        """Генерирует полный Markdown для всего курса с детальным контентом.
+
+        При наличии course_id подтягивает из БД слайды и тесты
+        (аналогично SCORM, но без видео).
+        """
+        return _export_course_markdown(course, course_id=course_id)
     
     @staticmethod
     def export_course_text(course: Course) -> str:

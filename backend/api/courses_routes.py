@@ -207,7 +207,7 @@ async def export_course(course_id: int, format: str, include_videos: bool = Fals
             extension = "json"
             
         elif format == "markdown" or format == "md":
-            content = export_service.export_course_markdown(course)
+            content = export_service.export_course_markdown(course, course_id=course_id)
             media_type = "text/markdown"
             extension = "md"
             
