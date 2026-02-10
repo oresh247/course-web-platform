@@ -559,13 +559,14 @@ def create_lesson_html(
             content_html = ""
             if slide_content:
                 # Заменяем переносы строк на <br> и параграфы
-                # ВАЖНО: используем одинарные символы \n, а не экранированные строки \\n
+                # ВАЖНО: сначала экранируем HTML, затем заменяем \n на <br>
                 paragraphs = slide_content.split("\n\n")
                 for para in paragraphs:
                     if para.strip():
-                        # Заменяем одиночные переносы на <br>
-                        para_processed = para.replace('\n', '<br>')
-                        content_html += f"<p>{escape_xml(para_processed)}</p>"
+                        # Сначала экранируем HTML символы, затем заменяем переносы на <br>
+                        para_escaped = escape_xml(para)
+                        para_processed = para_escaped.replace('\n', '<br>')
+                        content_html += f"<p>{para_processed}</p>"
             
             # Добавляем пример кода, если есть
             if code_example:

@@ -1,3 +1,4 @@
+import html as html_module
 from backend.models.domain import Course, Module
 
 
@@ -148,8 +149,9 @@ def export_module_html(course: Course, module: Module, content_data: dict) -> st
             <h4>Слайд {j}: {slide_title}</h4>
 """
             if slide_content:
-                # Заменяем переносы строк на <br>
-                content_processed = slide_content.replace('\n', '<br>')
+                # Сначала экранируем HTML символы, затем заменяем переносы на <br>
+                content_escaped = html_module.escape(slide_content, quote=False)
+                content_processed = content_escaped.replace('\n', '<br>')
                 html += f"            <p>{content_processed}</p>\n"
             if slide.get('code_example'):
                 # Для кода в <pre> блоке переносы строк сохраняются автоматически
@@ -216,7 +218,10 @@ def export_lesson_html(course: Course, module: Module, lesson, content_data: dic
         <h3>Слайд {j}: {slide_title}</h3>
 """
         if slide_content:
-            html += f"        <p>{slide_content.replace(chr(10), '<br>')}</p>\n"
+            # Сначала экранируем HTML символы, затем заменяем переносы на <br>
+            content_escaped = html_module.escape(slide_content, quote=False)
+            content_processed = content_escaped.replace('\n', '<br>')
+            html += f"        <p>{content_processed}</p>\n"
         if slide.get('code_example'):
             html += f"""        <div class="code">
             <pre><code>{slide['code_example']}</code></pre>
