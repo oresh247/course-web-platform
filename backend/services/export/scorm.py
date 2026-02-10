@@ -24,6 +24,7 @@ import httpx
 
 from backend.models.domain import Course, Module
 from backend.database import db
+from backend.services.export import normalize_newlines
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,7 @@ except ImportError:
 def escape_xml(text: str) -> str:
     """Экранирует XML специальные символы"""
     return html_module.escape(text, quote=False)
+
 
 
 def create_scorm_manifest(
@@ -558,17 +560,21 @@ def create_lesson_html(
             # Форматируем контент слайда
             content_html = ""
             if slide_content:
-                # Заменяем переносы строк на <br> и параграфы
-                paragraphs = slide_content.split("\\n\\n")
+                # Нормализуем переносы строк (литеральные \n → реальные переносы)
+                normalized_content = normalize_newlines(slide_content)
+                # Разделяем на параграфы по двойным переносам строк
+                paragraphs = normalized_content.split("\n\n")
                 for para in paragraphs:
                     if para.strip():
-                        # Выносим replace за пределы f-string, так как нельзя использовать \ в f-string выражениях
-                        para_processed = para.replace('\\n', '<br>')
-                        content_html += f"<p>{escape_xml(para_processed)}</p>"
+                        # Сначала экранируем HTML, потом заменяем переносы на <br>
+                        escaped_para = escape_xml(para)
+                        content_html += f"<p>{escaped_para.replace(chr(10), '<br>')}</p>"
             
             # Добавляем пример кода, если есть
             if code_example:
-                content_html += f'<pre><code class="language-{slide_type}">{escape_xml(code_example)}</code></pre>'
+                # Нормализуем переносы строк в примерах кода
+                normalized_code = normalize_newlines(code_example)
+                content_html += f'<pre><code class="language-{slide_type}">{escape_xml(normalized_code)}</code></pre>'
             
             slides_html += f"""
             <div class="slide" id="{slide_id}" style="display: {'block' if idx == 0 else 'none'};">

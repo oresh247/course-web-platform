@@ -1,4 +1,7 @@
+import html as html_module
+
 from backend.models.domain import Course, Module
+from backend.services.export import normalize_newlines
 
 
 def export_course_html(course: Course) -> str:
@@ -148,11 +151,15 @@ def export_module_html(course: Course, module: Module, content_data: dict) -> st
             <h4>Слайд {j}: {slide_title}</h4>
 """
             if slide_content:
-                html += f"            <p>{slide_content}</p>\n"
+                normalized_content = normalize_newlines(slide_content)
+                escaped_content = html_module.escape(normalized_content, quote=False)
+                html += f"            <p>{escaped_content.replace(chr(10), '<br>')}</p>\n"
             if slide.get('code_example'):
+                normalized_code = normalize_newlines(slide.get('code_example', ''))
+                escaped_code = html_module.escape(normalized_code, quote=False)
                 html += f"""
             <div class="code">
-                <pre><code>{slide['code_example']}</code></pre>
+                <pre><code>{escaped_code}</code></pre>
             </div>
 """
             if slide.get('visual_description'):
@@ -213,10 +220,14 @@ def export_lesson_html(course: Course, module: Module, lesson, content_data: dic
         <h3>Слайд {j}: {slide_title}</h3>
 """
         if slide_content:
-            html += f"        <p>{slide_content.replace(chr(10), '<br>')}</p>\n"
+            normalized_content = normalize_newlines(slide_content)
+            escaped_content = html_module.escape(normalized_content, quote=False)
+            html += f"        <p>{escaped_content.replace(chr(10), '<br>')}</p>\n"
         if slide.get('code_example'):
+            normalized_code = normalize_newlines(slide.get('code_example', ''))
+            escaped_code = html_module.escape(normalized_code, quote=False)
             html += f"""        <div class="code">
-            <pre><code>{slide['code_example']}</code></pre>
+            <pre><code>{escaped_code}</code></pre>
         </div>
 """
         if slide.get('notes'):
