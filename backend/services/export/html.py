@@ -148,8 +148,11 @@ def export_module_html(course: Course, module: Module, content_data: dict) -> st
             <h4>Слайд {j}: {slide_title}</h4>
 """
             if slide_content:
-                html += f"            <p>{slide_content}</p>\n"
+                # Заменяем переносы строк на <br>
+                content_processed = slide_content.replace('\n', '<br>')
+                html += f"            <p>{content_processed}</p>\n"
             if slide.get('code_example'):
+                # Для кода в <pre> блоке переносы строк сохраняются автоматически
                 html += f"""
             <div class="code">
                 <pre><code>{slide['code_example']}</code></pre>
