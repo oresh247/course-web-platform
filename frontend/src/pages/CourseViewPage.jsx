@@ -197,7 +197,7 @@ function CourseViewPage() {
   const getExportFormatLabel = (format) => {
     if (format === 'scorm') return 'SCORM 1.2'
     if (format === 'scorm2004') return 'SCORM 2004'
-    if (format === 'scorm_single') return 'SCORM 1.2 Single SCO (Игра королей)'
+    if (format === 'scorm_single') return 'SCORM 1.2 Single SCO'
     return format.toUpperCase()
   }
 
@@ -797,7 +797,7 @@ function CourseViewPage() {
     },
     {
       key: 'scorm_single',
-      label: '🎓 SCORM 1.2 Single SCO (стиль «Игра королей»)',
+      label: '🎓 SCORM 1.2 Single SCO',
       onClick: () => handleExport('scorm_single')
     },
     {
