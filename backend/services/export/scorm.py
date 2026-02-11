@@ -1515,11 +1515,38 @@ def export_course_scorm(
             logger.warning(f"   ⚠️ Видео файлы отсутствуют в пакете!")
         
         # 5. Добавляем стартовую страницу курса
+        # Для single-SCO (стиль «Игра королей»): meta как в iSpring, lms.js, инициализация SCORM
+        if single_sco:
+            meta_block = """    <meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no"/>
+    <meta name="format-detection" content="telephone=no"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <script src="lms.js"></script>"""
+            body_end_block = """
+    <script>
+        (function() {
+            if (typeof SCORM_API_Initialize === 'function') {
+                SCORM_API_Initialize("");
+                SCORM_API_SetValue("cmi.core.lesson_status", "incomplete");
+            }
+            window.addEventListener('beforeunload', function() {
+                if (typeof SCORM_API_SetValue === 'function') {
+                    SCORM_API_SetValue("cmi.core.lesson_status", "completed");
+                    SCORM_API_Commit("");
+                    SCORM_API_Terminate("");
+                }
+            });
+        })();
+    </script>"""
+        else:
+            meta_block = """    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">"""
+            body_end_block = ""
+
         start_page = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{meta_block}
     <title>{escape_xml(course.course_title)}</title>
     <style>
         body {{
@@ -1610,8 +1637,9 @@ def export_course_scorm(
             </div>
 """
         
-        start_page += """        </div>
+        start_page += f"""        </div>
     </div>
+{body_end_block}
 </body>
 </html>
 """
