@@ -22,11 +22,17 @@ import json
 import logging
 import httpx
 
+from pathlib import Path
+
 from backend.models.domain import Course, Module
 from backend.database import db
 from backend.services.export import normalize_newlines
 
 logger = logging.getLogger(__name__)
+
+# XSD-схемы SCORM 1.2 для валидации imsmanifest.xml (из примера «Игра королей»)
+SCORM_12_SCHEMAS_DIR = Path(__file__).resolve().parent / "schemas" / "scorm12"
+SCORM_12_XSD_FILES = ("ims_xml.xsd", "imscp_rootv1p1p2.xsd", "imsmd_rootv1p2p1.xsd", "adlcp_rootv1p2.xsd")
 
 SCORM_VERSION_12 = "1.2"
 SCORM_VERSION_2004 = "2004"
@@ -1663,7 +1669,16 @@ def export_course_scorm(
                 scorm_version=normalized_version,
             )
         zip_file.writestr("imsmanifest.xml", manifest_xml.encode('utf-8'))
-    
+
+        # 6. XSD-схемы SCORM 1.2 в корень пакета (для валидации imsmanifest.xml)
+        if normalized_version == SCORM_VERSION_12:
+            for xsd_name in SCORM_12_XSD_FILES:
+                xsd_path = SCORM_12_SCHEMAS_DIR / xsd_name
+                if xsd_path.exists():
+                    zip_file.writestr(xsd_name, xsd_path.read_text(encoding='utf-8').encode('utf-8'))
+                else:
+                    logger.warning(f"XSD схема не найдена: {xsd_path}")
+
     zip_buffer.seek(0)
     return zip_buffer.getvalue()
 
