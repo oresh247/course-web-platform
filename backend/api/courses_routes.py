@@ -186,7 +186,7 @@ async def export_course(course_id: int, format: str, include_videos: bool = Fals
     
     Args:
         course_id: ID курса
-        format: Формат экспорта (json, markdown, txt, html, pptx, scorm, scorm2004)
+        format: Формат экспорта (json, markdown, txt, html, pptx, scorm, scorm2004, scorm_single)
         include_videos: Включать ли видео в SCORM пакет (только для форматов scorm/scorm2004)
     """
     try:
@@ -260,11 +260,27 @@ async def export_course(course_id: int, format: str, include_videos: bool = Fals
                 media_type="application/zip",
                 headers={"Content-Disposition": format_content_disposition(filename)}
             )
-            
+
+        elif format in {"scorm_single", "scorm12_single", "scorm-single"}:
+            scorm_bytes = export_service.export_course_scorm(
+                course,
+                course_id,
+                include_videos=include_videos,
+                scorm_version=SCORM_VERSION_12,
+                single_sco=True,
+            )
+            filename = safe_filename(course.course_title, "zip")
+
+            return Response(
+                content=scorm_bytes,
+                media_type="application/zip",
+                headers={"Content-Disposition": format_content_disposition(filename)}
+            )
+
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Неподдерживаемый формат. Используйте: json, markdown, txt, html, pptx, scorm, scorm2004"
+                detail="Неподдерживаемый формат. Используйте: json, markdown, txt, html, pptx, scorm, scorm2004, scorm_single"
             )
         
         # Формируем имя файла

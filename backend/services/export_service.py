@@ -74,9 +74,12 @@ class ExportService:
         course_id: int,
         include_videos: bool = False,
         scorm_version: str = SCORM_VERSION_12,
+        single_sco: bool = False,
     ) -> bytes:
         """Генерирует SCORM пакет (ZIP архив) для курса"""
-        return _export_course_scorm(course, course_id, include_videos, scorm_version)
+        return _export_course_scorm(
+            course, course_id, include_videos, scorm_version, single_sco
+        )
     
     # ========== ЭКСПОРТ МОДУЛЯ (ДЕТАЛЬНЫЙ КОНТЕНТ) ==========
     

@@ -38,6 +38,7 @@ SCORM_12_NAMESPACES = {
     "xmlns": "http://www.imsproject.org/xsd/imscp_rootv1p1p2",
     "xmlns:adlcp": "http://www.adlnet.org/xsd/adlcp_rootv1p2",
     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+    "xmlns:lom": "http://www.imsglobal.org/xsd/imsmd_rootv1p2p1",
     "xsi:schemaLocation": (
         "http://www.imsproject.org/xsd/imscp_rootv1p1p2 imscp_rootv1p1p2.xsd "
         "http://www.imsglobal.org/xsd/imsmd_rootv1p2p1 imsmd_rootv1p2p1.xsd "
@@ -266,6 +267,96 @@ def create_scorm_manifest(
     ET.indent(manifest, space="  ")
     xml_str = ET.tostring(manifest, encoding='utf-8', xml_declaration=True).decode('utf-8')
     
+    return xml_str
+
+
+def create_scorm_manifest_single_sco(
+    course: Course,
+    course_id: int,
+    file_paths: List[str],
+    entry_href: str = "res/index.html",
+) -> str:
+    """Создает imsmanifest.xml в стиле «Игра королей» (один SCO, один ресурс).
+
+    Соответствует примеру из C:\\TEMP\\Игра королей:
+    - Один organization с одним item
+    - Один resource (SCO) с явным перечислением всех файлов
+    - LOM метаданные (title, typicallearningtime)
+    - SCORM 1.2
+
+    Args:
+        course: Курс для экспорта.
+        course_id: ID курса в базе данных.
+        file_paths: Список путей к файлам в пакете (относительно корня ZIP).
+        entry_href: Точка входа SCO (по умолчанию res/index.html).
+
+    Returns:
+        str: Содержимое imsmanifest.xml.
+    """
+    ns = SCORM_12_NAMESPACES
+    org_id = f"org_{course_id}".replace(" ", "_").replace("-", "_")
+
+    manifest = ET.Element("manifest")
+    manifest.set("identifier", str(course_id))
+    for key, value in ns.items():
+        manifest.set(key, value)
+
+    # Метаданные с LOM (как в «Игра королей»)
+    metadata = ET.SubElement(manifest, "metadata")
+    schema = ET.SubElement(metadata, "schema")
+    schema.text = "ADL SCORM"
+    schemaversion = ET.SubElement(metadata, "schemaversion")
+    schemaversion.text = SCORM_MANIFEST_SCHEMA_12
+
+    lom = ET.SubElement(metadata, "{http://www.imsglobal.org/xsd/imsmd_rootv1p2p1}lom")
+    general = ET.SubElement(lom, "{http://www.imsglobal.org/xsd/imsmd_rootv1p2p1}general")
+    title_elem = ET.SubElement(general, "{http://www.imsglobal.org/xsd/imsmd_rootv1p2p1}title")
+    langstring = ET.SubElement(title_elem, "{http://www.imsglobal.org/xsd/imsmd_rootv1p2p1}langstring")
+    langstring.text = escape_xml(course.course_title)
+
+    educational = ET.SubElement(lom, "{http://www.imsglobal.org/xsd/imsmd_rootv1p2p1}educational")
+    typicallearningtime = ET.SubElement(
+        educational, "{http://www.imsglobal.org/xsd/imsmd_rootv1p2p1}typicallearningtime"
+    )
+    datetime_elem = ET.SubElement(typicallearningtime, "{http://www.imsglobal.org/xsd/imsmd_rootv1p2p1}datetime")
+    total_minutes = sum(
+        lesson.estimated_time_minutes
+        for m in course.modules
+        for lesson in m.lessons
+    )
+    hours = total_minutes // 60
+    mins = total_minutes % 60
+    datetime_elem.text = f"{hours:02d}:{mins:02d}:00"
+
+    # Организация: один item
+    organizations = ET.SubElement(manifest, "organizations")
+    organizations.set("default", org_id)
+
+    organization = ET.SubElement(organizations, "organization")
+    organization.set("identifier", org_id)
+    org_title = ET.SubElement(organization, "title")
+    org_title.text = escape_xml(course.course_title)
+
+    item = ET.SubElement(organization, "item")
+    item.set("identifier", f"item_{course_id}")
+    item.set("identifierref", "resource")
+    item_title = ET.SubElement(item, "title")
+    item_title.text = escape_xml(course.course_title)
+
+    # Один resource (SCO) со всеми файлами
+    resources = ET.SubElement(manifest, "resources")
+    resource = ET.SubElement(resources, "resource")
+    resource.set("identifier", "resource")
+    resource.set("type", "webcontent")
+    resource.set(SCORM_12_SCORMTYPE_ATTR, "sco")
+    resource.set("href", entry_href)
+
+    for path in sorted(file_paths):
+        file_elem = ET.SubElement(resource, "file")
+        file_elem.set("href", path)
+
+    ET.indent(manifest, space="  ")
+    xml_str = ET.tostring(manifest, encoding="utf-8", xml_declaration=True).decode("utf-8")
     return xml_str
 
 
@@ -516,6 +607,7 @@ def create_lesson_html(
     video_filename: Optional[str] = None,
     test_data: Dict[str, Any] = None,
     scorm_version: str = SCORM_VERSION_12,
+    scorm_script_src: str = "../scripts/SCORM_API_wrapper.js",
 ) -> str:
     """Создает HTML страницу для урока со слайдами.
 
@@ -529,6 +621,7 @@ def create_lesson_html(
         video_filename: Имя видео файла в пакете.
         test_data: Данные теста, если они есть.
         scorm_version: Версия SCORM (1.2 или 2004).
+        scorm_script_src: Путь к SCORM API скрипту (для single-SCO: ../lms.js).
 
     Returns:
         str: HTML страница урока.
@@ -798,7 +891,7 @@ def create_lesson_html(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{escape_xml(lesson.lesson_title)}</title>
-    <script src="../scripts/SCORM_API_wrapper.js"></script>
+    <script src="{scorm_script_src}"></script>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1162,28 +1255,41 @@ def export_course_scorm(
     course_id: int,
     include_videos: bool = False,
     scorm_version: str = SCORM_VERSION_12,
+    single_sco: bool = False,
 ) -> bytes:
     """
     Экспортирует курс в формат SCORM (ZIP архив).
-    
+
     Args:
         course: Объект курса.
         course_id: ID курса в базе данных.
         include_videos: Включать ли видео в пакет.
         scorm_version: Версия SCORM (1.2 или 2004).
-        
+        single_sco: Если True — один SCO в стиле «Игра королей» (res/, LOM, один ресурс).
+
     Returns:
         bytes: ZIP архив с SCORM пакетом.
     """
     normalized_version = normalize_scorm_version(scorm_version)
     zip_buffer = BytesIO()
-    video_files = {}  # Словарь для хранения информации о видео файлах
-    
+    video_files = {}
+    file_paths: List[str] = []
+
+    # Пути для single-SCO (стиль «Игра королей»): res/index.html, res/lms.js, res/lessons/, res/videos/
+    prefix = "res/" if single_sco else ""
+    script_path = f"{prefix}lms.js" if single_sco else "scripts/SCORM_API_wrapper.js"
+    lessons_dir = f"{prefix}lessons/"
+    videos_dir = f"{prefix}videos/"
+    index_path = f"{prefix}index.html"
+    scorm_script_src = "../lms.js" if single_sco else "../scripts/SCORM_API_wrapper.js"
+
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        
-        # 2. Создаем папку scripts и добавляем SCORM API
+
+        # 2. SCORM API: res/lms.js (single) или scripts/SCORM_API_wrapper.js
         scorm_api_js = create_scorm_api_js(normalized_version)
-        zip_file.writestr("scripts/SCORM_API_wrapper.js", scorm_api_js.encode('utf-8'))
+        zip_file.writestr(script_path, scorm_api_js.encode('utf-8'))
+        if single_sco:
+            file_paths.append(script_path)
         
         # 3. Создаем HTML файлы для каждого урока и скачиваем видео (если нужно)
         for module in course.modules:
@@ -1346,10 +1452,12 @@ def export_course_scorm(
                                             video_ext = 'webm'
                                     
                                     video_filename = f"lesson_{module.module_number}_{lesson_idx}.{video_ext}"
-                                    video_path = f"videos/{video_filename}"
-                                    
+                                    video_path = f"{videos_dir}{video_filename}"
+
                                     # Сохраняем видео в ZIP
                                     zip_file.writestr(video_path, video_data)
+                                    if single_sco:
+                                        file_paths.append(video_path)
                                     video_files[f"{module.module_number}_{lesson_idx}"] = video_filename
                                     logger.info(f"✅ Видео успешно добавлено в пакет: {video_path} "
                                               f"(размер: {len(video_data)} байт, {len(video_data) / 1024 / 1024:.2f} MB, "
@@ -1388,11 +1496,14 @@ def export_course_scorm(
                     video_filename=video_filename,
                     test_data=test_data,
                     scorm_version=normalized_version,
+                    scorm_script_src=scorm_script_src,
                 )
-                
+
                 # Сохраняем в ZIP
-                lesson_path = f"lessons/lesson_{module.module_number}_{lesson_idx}.html"
+                lesson_path = f"{lessons_dir}lesson_{module.module_number}_{lesson_idx}.html"
                 zip_file.writestr(lesson_path, lesson_html.encode('utf-8'))
+                if single_sco:
+                    file_paths.append(lesson_path)
         
         # 4. Логируем итоговую статистику по видео
         logger.info(f"📊 Итоговая статистика SCORM экспорта для курса {course_id}:")
@@ -1504,15 +1615,25 @@ def export_course_scorm(
 </body>
 </html>
 """
-        zip_file.writestr("index.html", start_page.encode('utf-8'))
-        
+        zip_file.writestr(index_path, start_page.encode('utf-8'))
+        if single_sco:
+            file_paths.append(index_path)
+
         # 1. Создаем imsmanifest.xml (после того, как все файлы добавлены)
-        manifest_xml = create_scorm_manifest(
-            course,
-            course_id,
-            video_files=video_files,
-            scorm_version=normalized_version,
-        )
+        if single_sco:
+            manifest_xml = create_scorm_manifest_single_sco(
+                course,
+                course_id,
+                file_paths=file_paths,
+                entry_href=index_path,
+            )
+        else:
+            manifest_xml = create_scorm_manifest(
+                course,
+                course_id,
+                video_files=video_files,
+                scorm_version=normalized_version,
+            )
         zip_file.writestr("imsmanifest.xml", manifest_xml.encode('utf-8'))
     
     zip_buffer.seek(0)

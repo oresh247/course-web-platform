@@ -192,11 +192,12 @@ function CourseViewPage() {
     }
   }
 
-  const scormFormats = ['scorm', 'scorm2004']
+  const scormFormats = ['scorm', 'scorm2004', 'scorm_single']
   const isScormFormat = (format) => scormFormats.includes(format)
   const getExportFormatLabel = (format) => {
     if (format === 'scorm') return 'SCORM 1.2'
     if (format === 'scorm2004') return 'SCORM 2004'
+    if (format === 'scorm_single') return 'SCORM 1.2 Single SCO (Игра королей)'
     return format.toUpperCase()
   }
 
@@ -793,6 +794,11 @@ function CourseViewPage() {
       key: 'scorm2004',
       label: '🎓 SCORM 2004 (LMS пакет)',
       onClick: () => handleExport('scorm2004')
+    },
+    {
+      key: 'scorm_single',
+      label: '🎓 SCORM 1.2 Single SCO (стиль «Игра королей»)',
+      onClick: () => handleExport('scorm_single')
     },
     {
       type: 'divider'
