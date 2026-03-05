@@ -30,6 +30,7 @@ import {
   EditOutlined,
 } from '@ant-design/icons'
 import { coursesApi } from '../api/coursesApi'
+import { getVideoApiUrl } from '../config/api'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -44,8 +45,20 @@ const SLIDE_TYPES = [
   { value: 'summary', label: 'Итоги' },
 ]
 
+// Значения по умолчанию для HeyGen, если API аватаров/голосов недоступен
+const DEFAULT_AVATAR_ID = 'Abigail_expressive_2024112501'
+const DEFAULT_VOICE_ID = '9799f1ba6acd4b2b993fe813a18f9a91'
+const FALLBACK_AVATARS = [{ avatar_id: DEFAULT_AVATAR_ID, name: 'Abigail (по умолчанию)' }]
+const FALLBACK_VOICES = [{ voice_id: DEFAULT_VOICE_ID, name: 'Русский голос (по умолчанию)' }]
+
 const POLL_INTERVAL_MS = 4000
 const MAX_POLL_ATTEMPTS = 120
+
+/** Преобразует литеральные \n в строке в реальные переносы строк для отображения в TextArea */
+function displayMultiline(str) {
+  if (str == null || str === '') return ''
+  return String(str).replace(/\\n/g, '\n')
+}
 
 function CourseContentEditorPage() {
   const { message } = App.useApp()
@@ -68,10 +81,11 @@ function CourseContentEditorPage() {
     videoId: null,
     progress: 0,
   })
-  const [avatars, setAvatars] = useState([])
-  const [voices, setVoices] = useState([])
-  const [selectedAvatar, setSelectedAvatar] = useState('')
-  const [selectedVoice, setSelectedVoice] = useState('')
+  const [avatars, setAvatars] = useState(FALLBACK_AVATARS)
+  const [voices, setVoices] = useState(FALLBACK_VOICES)
+  const [selectedAvatar, setSelectedAvatar] = useState(DEFAULT_AVATAR_ID)
+  const [selectedVoice, setSelectedVoice] = useState(DEFAULT_VOICE_ID)
+  const [loadingAvatarsVoices, setLoadingAvatarsVoices] = useState(false)
 
   const courseId = id ? parseInt(id, 10) : null
 
@@ -136,31 +150,68 @@ function CourseContentEditorPage() {
   }, [selectedLesson, loadLessonContent])
 
   const loadAvatarsAndVoices = useCallback(async () => {
+    setLoadingAvatarsVoices(true)
     try {
-      const [avatarsRes, voicesRes] = await Promise.all([
-        coursesApi.getVideoAvatars(),
-        coursesApi.getVideoVoices(),
+      const [avatarsResponse, voicesResponse] = await Promise.all([
+        fetch(getVideoApiUrl('AVATARS')),
+        fetch(getVideoApiUrl('VOICES')),
       ])
-      const avatarsList = avatarsRes?.data ?? avatarsRes?.avatars ?? []
-      const voicesList = voicesRes?.data ?? voicesRes?.voices ?? voicesRes?.list ?? []
-      if (Array.isArray(avatarsList) && avatarsList.length) {
-        setAvatars(avatarsList)
-        if (!selectedAvatar) {
-          const first = avatarsList[0]
-          setSelectedAvatar(first?.avatar_id ?? first?.id ?? first?.value ?? '')
+      const avatarsData = await avatarsResponse.json()
+      const voicesData = await voicesResponse.json()
+
+      let avatarsList = null
+      if (avatarsData.success && avatarsData.data) {
+        if (Array.isArray(avatarsData.data)) avatarsList = avatarsData.data
+        else if (Array.isArray(avatarsData.data?.avatars)) avatarsList = avatarsData.data.avatars
+        else if (Array.isArray(avatarsData.data?.list)) avatarsList = avatarsData.data.list
+      }
+      if (!avatarsList && avatarsData.avatars) {
+        if (Array.isArray(avatarsData.avatars)) avatarsList = avatarsData.avatars
+        else if (typeof avatarsData.avatars === 'object') {
+          const first = Object.values(avatarsData.avatars).find((v) => Array.isArray(v))
+          if (Array.isArray(first)) avatarsList = first
         }
       }
-      if (Array.isArray(voicesList) && voicesList.length) {
-        setVoices(voicesList)
-        if (!selectedVoice) {
-          const first = voicesList[0]
-          setSelectedVoice(first?.voice_id ?? first?.id ?? first?.value ?? '')
+      if (Array.isArray(avatarsList) && avatarsList.length > 0) {
+        setAvatars(avatarsList)
+        const first = avatarsList[0]
+        setSelectedAvatar(first?.avatar_id ?? first?.id ?? first?.value ?? DEFAULT_AVATAR_ID)
+      } else {
+        setAvatars(FALLBACK_AVATARS)
+        setSelectedAvatar(DEFAULT_AVATAR_ID)
+      }
+
+      let voicesList = null
+      if (voicesData.success && voicesData.data) {
+        if (Array.isArray(voicesData.data)) voicesList = voicesData.data
+        else if (Array.isArray(voicesData.data?.list)) voicesList = voicesData.data.list
+        else if (Array.isArray(voicesData.data?.voices)) voicesList = voicesData.data.voices
+      }
+      if (!voicesList && voicesData.voices) {
+        if (Array.isArray(voicesData.voices)) voicesList = voicesData.voices
+        else if (typeof voicesData.voices === 'object') {
+          const first = Object.values(voicesData.voices).find((v) => Array.isArray(v))
+          if (Array.isArray(first)) voicesList = first
         }
+      }
+      if (Array.isArray(voicesList) && voicesList.length > 0) {
+        setVoices(voicesList)
+        const first = voicesList[0]
+        setSelectedVoice(first?.voice_id ?? first?.id ?? first?.value ?? DEFAULT_VOICE_ID)
+      } else {
+        setVoices(FALLBACK_VOICES)
+        setSelectedVoice(DEFAULT_VOICE_ID)
       }
     } catch (e) {
-      console.warn('Не удалось загрузить аватары/голоса:', e)
+      console.warn('Не удалось загрузить аватары/голоса, используются значения по умолчанию:', e)
+      setAvatars(FALLBACK_AVATARS)
+      setVoices(FALLBACK_VOICES)
+      setSelectedAvatar(DEFAULT_AVATAR_ID)
+      setSelectedVoice(DEFAULT_VOICE_ID)
+    } finally {
+      setLoadingAvatarsVoices(false)
     }
-  }, [selectedAvatar, selectedVoice])
+  }, [])
 
   useEffect(() => {
     if (slideVideoModal.open) loadAvatarsAndVoices()
@@ -245,8 +296,8 @@ function CourseContentEditorPage() {
       const res = await coursesApi.generateSlideVideo(courseId, moduleNumber, lessonIndex, slideIndex, {
         title: slideVideoModal.slideTitle,
         content,
-        avatar_id: selectedAvatar || 'Abigail_expressive_2024112501',
-        voice_id: selectedVoice || '9799f1ba6acd4b2b993fe813a18f9a91',
+        avatar_id: selectedAvatar || DEFAULT_AVATAR_ID,
+        voice_id: selectedVoice || DEFAULT_VOICE_ID,
         language: 'ru',
         quality: 'low',
         regenerate: false,
@@ -510,7 +561,7 @@ function CourseContentEditorPage() {
                       <TextArea
                         placeholder="Текст слайда"
                         rows={3}
-                        value={slide.content}
+                        value={displayMultiline(slide.content)}
                         onChange={(e) => updateSlide(slideIndex, 'content', e.target.value)}
                       />
                       <Select
@@ -524,7 +575,7 @@ function CourseContentEditorPage() {
                         <TextArea
                           placeholder="Пример кода"
                           rows={2}
-                          value={slide.code_example || ''}
+                          value={displayMultiline(slide.code_example || '')}
                           onChange={(e) => updateSlide(slideIndex, 'code_example', e.target.value)}
                         />
                       )}
@@ -605,26 +656,45 @@ function CourseContentEditorPage() {
             }
             placeholder="Скрипт для видео..."
           />
-          <Text type="secondary">Аватар:</Text>
+          <Text strong>Аватар:</Text>
           <Select
-            style={{ width: '100%' }}
-            value={selectedAvatar}
+            style={{ width: '100%', marginTop: 8 }}
+            placeholder="Выберите аватар"
+            value={selectedAvatar || DEFAULT_AVATAR_ID}
             onChange={setSelectedAvatar}
-            options={avatars.map((a) => ({
-              value: a.avatar_id ?? a.id ?? a.value,
-              label: a.name ?? a.avatar_name ?? a.avatar_id ?? a.id,
-            }))}
-          />
-          <Text type="secondary">Голос:</Text>
+            loading={loadingAvatarsVoices}
+          >
+            {avatars.map((avatar) => {
+              const avatarId = avatar.avatar_id ?? avatar.id ?? avatar.value ?? DEFAULT_AVATAR_ID
+              const avatarName = avatar.avatar_name ?? avatar.name ?? avatar.display_name ?? avatarId
+              return (
+                <Option key={avatarId} value={avatarId}>
+                  {avatarName}
+                </Option>
+              )
+            })}
+          </Select>
+          <Text strong>Голос:</Text>
           <Select
-            style={{ width: '100%' }}
-            value={selectedVoice}
+            style={{ width: '100%', marginTop: 8 }}
+            placeholder="Выберите голос"
+            value={selectedVoice || DEFAULT_VOICE_ID}
             onChange={setSelectedVoice}
-            options={voices.map((v) => ({
-              value: v.voice_id ?? v.id ?? v.value,
-              label: v.name ?? v.voice_name ?? v.voice_id ?? v.id,
-            }))}
-          />
+            loading={loadingAvatarsVoices}
+          >
+            {voices.map((voice) => {
+              const voiceId = voice.voice_id ?? voice.id ?? voice.value ?? DEFAULT_VOICE_ID
+              const language = voice.language ?? voice.lang ?? 'ru'
+              const gender = voice.gender ?? voice.sex ?? ''
+              const voiceName = voice.voice_name ?? voice.name ?? voice.display_name ??
+                (language && gender ? `${language} - ${gender}` : voiceId)
+              return (
+                <Option key={voiceId} value={voiceId}>
+                  {voiceName}
+                </Option>
+              )
+            })}
+          </Select>
           {slideVideoModal.generating && (
             <Progress percent={slideVideoModal.progress} status="active" />
           )}
