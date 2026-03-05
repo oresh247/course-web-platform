@@ -30,7 +30,7 @@ async def generate_lesson_with_video_cached(
 
         if not request.regenerate:
             cached_video = video_cache_service.get_cached_video(
-                course_id, module_number, lesson_index, request.content
+                course_id, module_number, lesson_index, request.content, slide_index=None
             )
             if cached_video:
                 logger.info(
@@ -90,10 +90,10 @@ async def generate_lesson_with_video_cached(
 
             if request.regenerate:
                 logger.info("Перегенерация видео - удаляем старое из кэша")
-                video_cache_service.delete_video(course_id, module_number, lesson_index)
+                video_cache_service.delete_video(course_id, module_number, lesson_index, slide_index=None)
 
             video_cache_service.cache_video(
-                course_id, module_number, lesson_index, request, video_id, "generating"
+                course_id, module_number, lesson_index, request, video_id, "generating", slide_index=None
             )
 
             db.update_lesson_video_info(
@@ -119,7 +119,8 @@ async def generate_lesson_with_video_cached(
             logger.error(f"Ошибка при создании видео: {error_msg}", exc_info=True)
             if "limit exceeded" not in error_msg.lower() and "timeout" not in error_msg.lower():
                 video_cache_service.cache_video(
-                    course_id, module_number, lesson_index, request, "", "failed", error_message=error_msg
+                    course_id, module_number, lesson_index, request, "", "failed",
+                    error_message=error_msg, slide_index=None
                 )
             return VideoGenerationResponse(
                 success=False,
@@ -131,6 +132,113 @@ async def generate_lesson_with_video_cached(
         logger.error(
             f"Неожиданная ошибка в generate_lesson_with_video_cached: {e}"
         )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-slide-cached")
+async def generate_slide_with_video_cached(
+    course_id: int,
+    module_number: int,
+    lesson_index: int,
+    slide_index: int,
+    request: VideoGenerationRequest,
+):
+    """Генерация видео для одного слайда урока (HeyGen)."""
+    try:
+        logger.info(
+            f"Запрос на генерацию видео для слайда {slide_index} урока {course_id}_{module_number}_{lesson_index}"
+        )
+
+        if not request.regenerate:
+            cached_video = video_cache_service.get_cached_video(
+                course_id, module_number, lesson_index, request.content, slide_index=slide_index
+            )
+            if cached_video:
+                logger.info(
+                    f"Используем кэшированное видео для слайда: {cached_video.video_id}, статус: {cached_video.status}"
+                )
+                msg = "Видео найдено в кэше и продолжает генерироваться" if cached_video.status == "generating" else (
+                    "Видео найдено в кэше и готово" if cached_video.status == "completed" else f"Статус: {cached_video.status}"
+                )
+                return VideoGenerationResponse(
+                    success=True,
+                    video_id=cached_video.video_id,
+                    status=cached_video.status,
+                    message=msg,
+                    is_cached=True,
+                    download_url=cached_video.download_url,
+                )
+
+        logger.info(
+            f"Генерируем {'новое' if not request.regenerate else 'перегенерированное'} видео для слайда {slide_index}"
+        )
+        try:
+            video_response = await run_in_threadpool(
+                heygen_service.create_video_from_text,
+                text=request.content,
+                avatar_id=request.avatar_id,
+                voice_id=request.voice_id,
+                language=request.language,
+                quality=request.quality,
+            )
+            logger.info(f"Ответ HeyGen для слайда: {video_response}")
+            video_id = video_response.get("video_id")
+            if not video_id:
+                error_msg = video_response.get("error", "Неизвестная ошибка генерации")
+                logger.error(f"Ошибка генерации видео для слайда: {error_msg}")
+                video_cache_service.cache_video(
+                    course_id, module_number, lesson_index, request, "",
+                    "failed", error_message=error_msg, slide_index=slide_index
+                )
+                return VideoGenerationResponse(
+                    success=False,
+                    status="failed",
+                    message=f"Ошибка генерации видео: {error_msg}",
+                    error=error_msg,
+                )
+
+            if request.regenerate:
+                video_cache_service.delete_video(course_id, module_number, lesson_index, slide_index=slide_index)
+
+            video_cache_service.cache_video(
+                course_id, module_number, lesson_index, request, video_id, "generating",
+                slide_index=slide_index
+            )
+
+            db.update_lesson_slide_video_info(
+                course_id=course_id,
+                module_number=module_number,
+                lesson_index=lesson_index,
+                slide_index=slide_index,
+                video_id=video_id,
+                video_status="generating",
+            )
+
+            logger.info(f"Видео {video_id} для слайда {slide_index} поставлено в очередь генерации")
+            return VideoGenerationResponse(
+                success=True,
+                video_id=video_id,
+                status="generating",
+                message="Видео для слайда поставлено в очередь генерации",
+                is_cached=False,
+            )
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Ошибка при создании видео для слайда: {error_msg}", exc_info=True)
+            if "limit exceeded" not in error_msg.lower() and "timeout" not in error_msg.lower():
+                video_cache_service.cache_video(
+                    course_id, module_number, lesson_index, request, "", "failed",
+                    error_message=error_msg, slide_index=slide_index
+                )
+            return VideoGenerationResponse(
+                success=False,
+                status="failed",
+                message=f"Ошибка при создании видео: {error_msg}",
+                error=error_msg,
+            )
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка в generate_slide_with_video_cached: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

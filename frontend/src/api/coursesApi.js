@@ -192,6 +192,40 @@ export const coursesApi = {
     return response.data
   },
 
+  // Обновить детальный контент урока (слайды, лекция)
+  updateLessonContent: async (courseId, moduleNumber, lessonIndex, lessonContent) => {
+    const response = await api.put(
+      `/api/courses/${courseId}/modules/${moduleNumber}/lessons/${lessonIndex}/content`,
+      lessonContent
+    )
+    return response.data
+  },
+
+  // Генерация видео для одного слайда урока (HeyGen)
+  generateSlideVideo: async (courseId, moduleNumber, lessonIndex, slideIndex, payload) => {
+    const response = await api.post(
+      `/api/video/generate-slide-cached?course_id=${courseId}&module_number=${moduleNumber}&lesson_index=${lessonIndex}&slide_index=${slideIndex}`,
+      payload
+    )
+    return response.data
+  },
+
+  // Статус видео по video_id (для опроса после генерации)
+  getVideoStatus: async (videoId) => {
+    const response = await api.get(`/api/video/status/${videoId}`)
+    return response.data
+  },
+
+  // Список аватаров и голосов HeyGen для генерации видео
+  getVideoAvatars: async () => {
+    const response = await api.get('/api/video/avatars')
+    return response.data
+  },
+  getVideoVoices: async () => {
+    const response = await api.get('/api/video/voices')
+    return response.data
+  },
+
   // Проверка здоровья API
   healthCheck: async () => {
     const response = await api.get('/api/health')

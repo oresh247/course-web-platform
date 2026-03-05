@@ -4,6 +4,7 @@ import AppHeader from './components/Header'
 import HomePage from './pages/HomePage'
 import CreateCoursePage from './pages/CreateCoursePage'
 import CourseViewPage from './pages/CourseViewPage'
+import CourseContentEditorPage from './pages/CourseContentEditorPage'
 import CoursesListPage from './pages/CoursesListPage'
 import VideoTestPage from './pages/VideoTestPage'
 import './styles/App.css'
@@ -99,6 +100,7 @@ function App() {
               <Route path="/create" element={<CreateCoursePage />} />
               <Route path="/courses" element={<CoursesListPage />} />
               <Route path="/courses/:id" element={<CourseViewPage />} />
+              <Route path="/courses/:id/content" element={<CourseContentEditorPage />} />
               <Route path="/video-test" element={<VideoTestPage />} />
             </Routes>
           </Content>

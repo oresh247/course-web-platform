@@ -40,8 +40,25 @@ async def get_video_status(video_id: str):
                 cached_video = video_cache_service.get_video_by_id(video_id)
                 if cached_video:
                     parts = cached_video.lesson_key.split("_")
-                    if len(parts) == 3:
-                        try:
+                    try:
+                        if len(parts) == 4:
+                            course_id = int(parts[0])
+                            module_number = int(parts[1])
+                            lesson_index = int(parts[2])
+                            slide_index = int(parts[3])
+                            db.update_lesson_slide_video_info(
+                                course_id=course_id,
+                                module_number=module_number,
+                                lesson_index=lesson_index,
+                                slide_index=slide_index,
+                                video_id=video_id,
+                                video_status="completed",
+                                video_download_url=status.get("download_url"),
+                            )
+                            logger.info(
+                                f"Информация о видео слайда {video_id} сохранена в БД"
+                            )
+                        elif len(parts) == 3:
                             course_id = int(parts[0])
                             module_number = int(parts[1])
                             lesson_index = int(parts[2])
@@ -57,10 +74,10 @@ async def get_video_status(video_id: str):
                             logger.info(
                                 f"Информация о видео {video_id} сохранена в БД"
                             )
-                        except (ValueError, TypeError) as e:
-                            logger.warning(
-                                f"Не удалось сохранить информацию о видео в БД: {e}"
-                            )
+                    except (ValueError, TypeError) as e:
+                        logger.warning(
+                            f"Не удалось сохранить информацию о видео в БД: {e}"
+                        )
         return {"success": True, "data": status}
     except Exception as e:
         logger.error(f"Ошибка при проверке статуса видео {video_id}: {str(e)}")

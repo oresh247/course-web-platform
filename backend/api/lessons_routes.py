@@ -14,7 +14,7 @@ from typing import Optional
 import logging
 import json
 
-from backend.models.domain import Course, LessonTest
+from backend.models.domain import Course, LessonTest, LessonContentUpdate
 from backend.ai.content_generator import ContentGenerator
 from backend.database import db
 from backend.services.generation_service import generation_service
@@ -300,22 +300,72 @@ async def get_lesson_content(course_id: int, module_number: int, lesson_index: i
     """Получить детальный контент урока"""
     try:
         content_data = db.get_lesson_content(course_id, module_number, lesson_index)
-        
+
         if not content_data:
             raise HTTPException(
                 status_code=404,
                 detail="Контент урока не найден. Сначала сгенерируйте его."
             )
-        
+
         return {
             "status": "found",
             "lesson_content": content_data
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Ошибка получения контента урока: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{course_id}/modules/{module_number}/lessons/{lesson_index}/content", response_model=dict)
+async def update_lesson_content(
+    course_id: int, module_number: int, lesson_index: int, body: LessonContentUpdate
+):
+    """Обновить детальный контент урока (слайды, лекция)."""
+    try:
+        course_data = db.get_course(course_id)
+        if not course_data:
+            raise HTTPException(status_code=404, detail="Курс не найден")
+        modules = course_data.get("modules") or []
+        module = next((m for m in modules if int(m.get("module_number", -1)) == int(module_number)), None)
+        if not module:
+            raise HTTPException(status_code=404, detail="Модуль не найден")
+        lessons = module.get("lessons") or []
+        if lesson_index < 0 or lesson_index >= len(lessons):
+            raise HTTPException(status_code=404, detail="Урок не найден")
+        lesson_title = lessons[lesson_index].get("lesson_title") or "Урок"
+        existing = db.get_lesson_content(course_id, module_number, lesson_index)
+        existing_slides = (existing.get("slides") or []) if existing else []
+        slides_out = []
+        for i, s in enumerate(body.slides):
+            slide_dict = s.model_dump() if hasattr(s, "model_dump") else dict(s)
+            if i < len(existing_slides) and isinstance(existing_slides[i], dict):
+                for key in ("video_id", "video_status", "video_download_url"):
+                    if key in existing_slides[i] and existing_slides[i][key]:
+                        slide_dict[key] = existing_slides[i][key]
+            slides_out.append(slide_dict)
+        content_data = {
+            "lecture_title": body.lecture_title,
+            "duration_minutes": body.duration_minutes,
+            "learning_objectives": body.learning_objectives,
+            "key_takeaways": body.key_takeaways,
+            "slides": slides_out,
+        }
+        db.save_lesson_content(
+            course_id=course_id,
+            module_number=module_number,
+            lesson_index=lesson_index,
+            lesson_title=lesson_title,
+            content_data=content_data,
+        )
+        logger.info(f"Контент урока {lesson_index} модуля {module_number} курса {course_id} обновлён")
+        return {"status": "ok", "lesson_content": content_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка обновления контента урока: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

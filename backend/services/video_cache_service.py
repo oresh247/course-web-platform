@@ -64,30 +64,36 @@ class VideoCacheService:
         except Exception as e:
             logger.error(f"Ошибка сохранения кэша видео: {e}")
     
-    def _generate_lesson_key(self, course_id: int, module_number: int, lesson_index: int) -> str:
-        """Генерирует уникальный ключ для урока"""
-        return f"{course_id}_{module_number}_{lesson_index}"
+    def _generate_lesson_key(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int,
+        slide_index: Optional[int] = None,
+    ) -> str:
+        """Генерирует уникальный ключ для урока (или для слайда урока)."""
+        key = f"{course_id}_{module_number}_{lesson_index}"
+        if slide_index is not None:
+            key = f"{key}_{slide_index}"
+        return key
     
     def _generate_content_hash(self, content: str) -> str:
         """Генерирует хэш содержимого для сравнения"""
         import hashlib
         return hashlib.md5(content.encode('utf-8')).hexdigest()
     
-    def get_cached_video(self, course_id: int, module_number: int, lesson_index: int, 
-                        content: str) -> Optional[VideoCache]:
+    def get_cached_video(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int,
+        content: str,
+        slide_index: Optional[int] = None,
+    ) -> Optional[VideoCache]:
         """
-        Получает кэшированное видео для урока
-        
-        Args:
-            course_id: ID курса
-            module_number: Номер модуля
-            lesson_index: Индекс урока
-            content: Содержимое урока для сравнения
-            
-        Returns:
-            VideoCache если найдено подходящее видео, иначе None
+        Получает кэшированное видео для урока (или для слайда при slide_index is not None).
         """
-        lesson_key = self._generate_lesson_key(course_id, module_number, lesson_index)
+        lesson_key = self._generate_lesson_key(course_id, module_number, lesson_index, slide_index)
         content_hash = self._generate_content_hash(content)
         
         if lesson_key in self.cache:
@@ -110,26 +116,20 @@ class VideoCacheService:
         
         return None
     
-    def cache_video(self, course_id: int, module_number: int, lesson_index: int,
-                   request: VideoGenerationRequest, video_id: str, status: str,
-                   download_url: Optional[str] = None, error_message: Optional[str] = None) -> VideoCache:
-        """
-        Сохраняет информацию о видео в кэш
-        
-        Args:
-            course_id: ID курса
-            module_number: Номер модуля
-            lesson_index: Индекс урока
-            request: Запрос генерации видео
-            video_id: ID видео
-            status: Статус видео
-            download_url: URL для скачивания
-            error_message: Сообщение об ошибке
-            
-        Returns:
-            VideoCache объект
-        """
-        lesson_key = self._generate_lesson_key(course_id, module_number, lesson_index)
+    def cache_video(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int,
+        request: VideoGenerationRequest,
+        video_id: str,
+        status: str,
+        download_url: Optional[str] = None,
+        error_message: Optional[str] = None,
+        slide_index: Optional[int] = None,
+    ) -> VideoCache:
+        """Сохраняет информацию о видео в кэш (для урока или для слайда при slide_index)."""
+        lesson_key = self._generate_lesson_key(course_id, module_number, lesson_index, slide_index)
         now = datetime.now()
         
         video_cache = VideoCache(
@@ -201,19 +201,15 @@ class VideoCacheService:
                 return video_cache
         return None
     
-    def delete_video(self, course_id: int, module_number: int, lesson_index: int) -> bool:
-        """
-        Удаляет видео из кэша
-        
-        Args:
-            course_id: ID курса
-            module_number: Номер модуля
-            lesson_index: Индекс урока
-            
-        Returns:
-            True если видео удалено, False если не найдено
-        """
-        lesson_key = self._generate_lesson_key(course_id, module_number, lesson_index)
+    def delete_video(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int,
+        slide_index: Optional[int] = None,
+    ) -> bool:
+        """Удаляет видео из кэша (для урока или для слайда при slide_index)."""
+        lesson_key = self._generate_lesson_key(course_id, module_number, lesson_index, slide_index)
         
         if lesson_key in self.cache:
             del self.cache[lesson_key]

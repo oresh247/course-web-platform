@@ -185,6 +185,15 @@ class GeneratedLecture(BaseModel):
     key_takeaways: List[str] = Field(default_factory=list)
 
 
+class LessonContentUpdate(BaseModel):
+    """Тело запроса на обновление контента урока (слайды, лекция)."""
+    lecture_title: str = Field(..., description="Название лекции")
+    duration_minutes: int = Field(default=45, ge=15, le=240, description="Длительность в минутах")
+    learning_objectives: List[str] = Field(default_factory=list, description="Цели обучения")
+    key_takeaways: List[str] = Field(default_factory=list, description="Ключевые выводы")
+    slides: List[Slide] = Field(default_factory=list, description="Слайды урока")
+
+
 # ============================================================================
 # API МОДЕЛИ (для запросов/ответов)
 # ============================================================================

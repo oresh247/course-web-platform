@@ -869,6 +869,54 @@ class RenderDatabase:
             logger.error(f"Ошибка обновления информации о видео: {e}")
             raise
 
+    def update_lesson_slide_video_info(
+        self,
+        course_id: int,
+        module_number: int,
+        lesson_index: int,
+        slide_index: int,
+        video_id: Optional[str] = None,
+        video_status: Optional[str] = None,
+        video_download_url: Optional[str] = None,
+    ) -> bool:
+        """
+        Обновляет информацию о видео для слайда урока (в content_data.slides[slide_index]).
+        """
+        content_data = self.get_lesson_content(course_id, module_number, lesson_index)
+        if not content_data:
+            logger.warning(f"Контент урока {course_id}/{module_number}/{lesson_index} не найден")
+            return False
+        slides = content_data.get("slides") or []
+        if not isinstance(slides, list):
+            slides = []
+        while len(slides) <= slide_index:
+            slides.append({"slide_number": len(slides) + 1, "title": "", "content": ""})
+        slide = slides[slide_index]
+        if not isinstance(slide, dict):
+            slide = {"slide_number": slide_index + 1, "title": "", "content": ""}
+            slides[slide_index] = slide
+        if video_id is not None:
+            slide["video_id"] = video_id
+        if video_status is not None:
+            slide["video_status"] = video_status
+        if video_download_url is not None:
+            slide["video_download_url"] = video_download_url
+        content_data["slides"] = slides
+        course_data = self.get_course(course_id)
+        if not course_data:
+            return False
+        modules = course_data.get("modules") or []
+        module = next((m for m in modules if int(m.get("module_number", -1)) == int(module_number)), None)
+        if not module:
+            return False
+        lessons = module.get("lessons") or []
+        if lesson_index < 0 or lesson_index >= len(lessons):
+            return False
+        lesson_title = lessons[lesson_index].get("lesson_title") or "Урок"
+        self.save_lesson_content(course_id, module_number, lesson_index, lesson_title, content_data)
+        logger.info(f"Обновлена информация о видео для слайда {slide_index} урока {course_id}/{module_number}/{lesson_index}")
+        return True
+
 
 # Функция для создания экземпляра базы данных
 def get_database():

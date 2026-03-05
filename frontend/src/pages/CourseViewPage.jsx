@@ -860,13 +860,21 @@ function CourseViewPage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-      <Button 
-        icon={<ArrowLeftOutlined />} 
-        onClick={() => navigate('/courses')}
-        style={{ marginBottom: 16 }}
-      >
-        К списку курсов
-      </Button>
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Button 
+          icon={<ArrowLeftOutlined />} 
+          onClick={() => navigate('/courses')}
+        >
+          К списку курсов
+        </Button>
+        <Button 
+          type="primary"
+          icon={<EditOutlined />}
+          onClick={() => navigate(`/courses/${id}/content`)}
+        >
+          Редактор слайдов
+        </Button>
+      </Space>
 
       <Card>
         <div style={{ marginBottom: 24 }}>
