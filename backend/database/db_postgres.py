@@ -122,6 +122,20 @@ class RenderDatabase:
                     except psycopg2.Error:
                         pass
 
+                    # Миграция: добавить module_title в module_contents (для БД, созданных до появления колонки)
+                    try:
+                        cursor.execute("ALTER TABLE module_contents ADD COLUMN IF NOT EXISTS module_title VARCHAR(255) DEFAULT ''")
+                    except psycopg2.Error:
+                        pass
+                    try:
+                        cursor.execute("UPDATE module_contents SET module_title = '' WHERE module_title IS NULL")
+                    except psycopg2.Error:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE module_contents ALTER COLUMN module_title SET NOT NULL")
+                    except psycopg2.Error:
+                        pass
+
                     # Добавляем колонки для видео, если их еще нет
                     try:
                         cursor.execute("ALTER TABLE lesson_contents ADD COLUMN IF NOT EXISTS video_id TEXT")
