@@ -10,11 +10,15 @@
   Делайте это только для отладки. В проде используйте корректные сертификаты.
 """
 import os
-import requests
 import logging
 import ssl
 from typing import Dict, Any, Optional
 
+import requests
+import urllib3
+
+# Убираем предупреждение о непроверенном HTTPS в логах (при использовании verify=False)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 

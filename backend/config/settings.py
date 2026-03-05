@@ -43,6 +43,8 @@ AI_CACHE_TTL_SECONDS = int(os.getenv("AI_CACHE_TTL_SECONDS", "86400"))
 HEYGEN_API_KEY = os.getenv("HEYGEN_API_KEY")
 HEYGEN_API_URL = os.getenv("HEYGEN_API_URL", "https://api.heygen.com")
 HEYGEN_DEFAULT_AVATAR_ID = os.getenv("HEYGEN_DEFAULT_AVATAR_ID", "Abigail_expressive_2024112501")
+# Голос по умолчанию должен поддерживать язык озвучки (например ru).
+# Иначе HeyGen вернёт VOICE_CLIENT_ERROR. Список голосов: GET /v2/voices, выбрать voice_id с language "ru".
 HEYGEN_DEFAULT_VOICE_ID = os.getenv("HEYGEN_DEFAULT_VOICE_ID", "9799f1ba6acd4b2b993fe813a18f9a91")
 HEYGEN_TIMEOUT = int(os.getenv("HEYGEN_TIMEOUT", "30"))
 HEYGEN_STATUS_TIMEOUT = int(os.getenv("HEYGEN_STATUS_TIMEOUT", "10"))
