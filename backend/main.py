@@ -87,7 +87,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "AI Course Builder",
-        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")),
         "heygen_configured": bool(os.getenv("HEYGEN_API_KEY"))
     }
 
@@ -98,7 +98,7 @@ async def health_check_api():
     return {
         "status": "healthy",
         "service": "AI Course Builder",
-        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
+        "openai_configured": bool(os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")),
         "heygen_configured": bool(os.getenv("HEYGEN_API_KEY"))
     }
 

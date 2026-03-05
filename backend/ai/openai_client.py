@@ -1,10 +1,14 @@
 """
-Клиент для OpenAI API с поддержкой прокси и настраиваемых таймаутов.
+Клиент для OpenAI API и OpenRouter с поддержкой прокси и настраиваемых таймаутов.
+
+Поддерживаются два провайдера:
+- OpenAI: задаётся OPENAI_API_KEY.
+- OpenRouter (https://openrouter.ai/): задаётся OPENROUTER_API_KEY; при наличии
+  этого ключа все вызовы идут через OpenRouter (модели в формате provider/model).
 
 Используемые библиотеки:
-- `openai` — официальный SDK для обращения к Chat Completions и др.
-- `httpx` — HTTP‑клиент, позволяет гибко настраивать прокси и таймауты,
-  здесь мы передаём его в OpenAI SDK как транспорт.
+- `openai` — официальный SDK (совместим с OpenRouter по base_url).
+- `httpx` — HTTP‑клиент для прокси и таймаутов.
 
 Примечание: в корпоративных сетях может понадобиться `HTTPS_PROXY`.
 """
@@ -19,38 +23,61 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIClient:
-    """Клиент для работы с OpenAI API с поддержкой прокси.
+    """Клиент для работы с OpenAI API или OpenRouter с поддержкой прокси.
 
-    - Автоматически берёт ключ из `settings`/переменных окружения.
-    - Умеет работать через прокси (`HTTPS_PROXY`).
+    - Выбор провайдера: если задан OPENROUTER_API_KEY — используется OpenRouter,
+      иначе OPENAI_API_KEY (OpenAI).
+    - Работает через прокси (HTTPS_PROXY) для обоих провайдеров.
     - Логирует метрики (время, токены, ретраи) для диагностики.
     """
-    
+
     def __init__(self):
         from backend.config import settings
-        # Получаем API ключ из переменных окружения
-        api_key = settings.OPENAI_API_KEY or os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY не найден в переменных окружения")
-        
-        # Настраиваем прокси из .env или используем прямое подключение
-        proxy_url = settings.HTTPS_PROXY or os.getenv('HTTPS_PROXY') or os.getenv('HTTP_PROXY')
-        
-        if proxy_url:
-            logger.info(f"Используем прокси для OpenAI API")
-            http_client = httpx.Client(
-                verify=False,
-                timeout=float(settings.OPENAI_TIMEOUT or 120.0),
-                proxies=proxy_url
-            )
+
+        use_openrouter = settings.USE_OPENROUTER
+        proxy_url = settings.HTTPS_PROXY or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+        timeout = float(settings.OPENAI_TIMEOUT or 120.0)
+
+        if use_openrouter:
+            api_key = settings.OPENROUTER_API_KEY or os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "OPENROUTER_API_KEY не найден. Задайте OPENROUTER_API_KEY в .env или "
+                    "используйте OPENAI_API_KEY для работы через OpenAI."
+                )
+            base_url = settings.OPENROUTER_BASE_URL or "https://openrouter.ai/api/v1"
+            self._use_openrouter = True
+            if proxy_url:
+                logger.info("Используем OpenRouter API через прокси")
+            else:
+                logger.info("Используем OpenRouter API (прямое подключение)")
         else:
-            logger.info("Прямое подключение к OpenAI API")
-            http_client = httpx.Client(verify=False, timeout=float(settings.OPENAI_TIMEOUT or 120.0))
-        
-        self.client = openai.OpenAI(
-            api_key=api_key,
-            http_client=http_client
-        )
+            api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "OPENAI_API_KEY не найден. Задайте OPENAI_API_KEY в .env или "
+                    "OPENROUTER_API_KEY для работы через OpenRouter."
+                )
+            base_url = None
+            self._use_openrouter = False
+            if proxy_url:
+                logger.info("Используем OpenAI API через прокси")
+            else:
+                logger.info("Используем OpenAI API (прямое подключение)")
+
+        if proxy_url:
+            http_client = httpx.Client(verify=False, timeout=timeout, proxies=proxy_url)
+        else:
+            http_client = httpx.Client(verify=False, timeout=timeout)
+
+        create_kwargs: Dict[str, Any] = {
+            "api_key": api_key,
+            "http_client": http_client,
+        }
+        if base_url:
+            create_kwargs["base_url"] = base_url
+
+        self.client = openai.OpenAI(**create_kwargs)
     
     def generate_course_structure(
         self, 
@@ -316,14 +343,16 @@ class OpenAIClient:
         if model is None:
             model = settings.OPENAI_MODEL_DEFAULT
         
-        # Список моделей, которые поддерживают JSON mode
+        # Список моделей, которые поддерживают JSON mode (OpenAI и OpenRouter-идентификаторы)
         json_mode_models = [
             "gpt-4-turbo-preview", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini",
-            "gpt-3.5-turbo", "gpt-3.5-turbo-16k"
+            "gpt-3.5-turbo", "gpt-3.5-turbo-16k",
+            "claude-3", "claude-3.5", "claude-3-opus", "claude-3-sonnet",
         ]
-        
-        # Пытаемся использовать JSON mode, если модель поддерживает
-        use_json_mode = any(json_model in model.lower() for json_model in json_mode_models)
+        # OpenRouter поддерживает JSON mode для многих моделей — при использовании OpenRouter пробуем всегда
+        use_json_mode = self._use_openrouter or any(
+            json_model in model.lower() for json_model in json_mode_models
+        )
         
         if use_json_mode:
             content = self.call_ai(

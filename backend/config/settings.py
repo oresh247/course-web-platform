@@ -7,8 +7,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# OpenAI
+# OpenAI (используется, если OPENROUTER_API_KEY не задан)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# OpenRouter (https://openrouter.ai/) — единый API для разных моделей
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+# Определение провайдера: если задан OPENROUTER_API_KEY — используем OpenRouter, иначе OpenAI
+USE_OPENROUTER = bool(OPENROUTER_API_KEY)
+
 OPENAI_MODEL_DEFAULT = os.getenv("OPENAI_MODEL_DEFAULT", "gpt-4")
 OPENAI_MODEL_DETAILED_CONTENT = os.getenv("OPENAI_MODEL_DETAILED_CONTENT", "gpt-4-turbo-preview")
 OPENAI_TIMEOUT = int(os.getenv("OPENAI_TIMEOUT", "120"))

@@ -47,7 +47,7 @@ class GenerationService:
             new_goal = self.openai_client.call_ai(
                 system_prompt="Ты эксперт по созданию образовательного контента.",
                 user_prompt=prompt,
-                model="gpt-4",
+                model=settings.OPENAI_MODEL_DEFAULT,
                 temperature=0.7,
                 max_tokens=settings.OPENAI_MAX_TOKENS_SHORT_MIN
             )
@@ -85,7 +85,7 @@ class GenerationService:
             content_text = self.openai_client.call_ai(
                 system_prompt="Ты эксперт по созданию образовательного контента.",
                 user_prompt=prompt,
-                model="gpt-4",
+                model=settings.OPENAI_MODEL_DEFAULT,
                 temperature=0.7,
                 max_tokens=settings.OPENAI_MAX_TOKENS_SHORT_MAX
             )
