@@ -159,12 +159,14 @@ class HeyGenService:
             elif normalized.get("status") == "completed":
                 logger.info(f"✅ Видео {video_id} готово")
             elif normalized.get("status") == "failed":
-                logger.error(
-                    f"HeyGen ошибка для видео {video_id}: {normalized.get('error')} (код: {normalized.get('error_code')})"
-                )
+                err = normalized.get("error", "")
+                code = normalized.get("error_code", "")
+                logger.error(f"HeyGen ошибка для видео {video_id}: {err} (код: {code})")
+                if code == "MOVIO_PAYMENT_INSUFFICIENT_CREDIT":
+                    logger.info("Пополните баланс HeyGen: https://app.heygen.com/ или dashboard HeyGen")
             else:
-                logger.warning(
-                    f"Неизвестный статус для видео {video_id}: {normalized.get('status')}"
+                logger.debug(
+                    f"Статус видео {video_id}: {normalized.get('status')}"
                 )
             return normalized
             

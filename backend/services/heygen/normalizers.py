@@ -53,6 +53,10 @@ def normalize_status_response(result: Dict[str, Any], video_id: str) -> Dict[str
     if not status and video_id:
         status = "generating"
 
+    # HeyGen может вернуть processing, in_progress, queued и т.д. — считаем их «generating»
+    if status and str(status).lower() in ("processing", "in_progress", "queued", "pending", "working"):
+        status = "generating"
+
     if status == "failed" or error_details:
         error_msg = "Неизвестная ошибка генерации"
         error_code = "unknown"
@@ -61,6 +65,8 @@ def normalize_status_response(result: Dict[str, Any], video_id: str) -> Dict[str
             error_code = error_details.get("code", error_code)
         elif isinstance(error_details, str):
             error_msg = error_details
+        if error_code == "MOVIO_PAYMENT_INSUFFICIENT_CREDIT":
+            error_msg = "Недостаточно средств на счёте HeyGen. Пополните баланс в личном кабинете HeyGen."
         return {
             "status": "failed",
             "error": error_msg,
