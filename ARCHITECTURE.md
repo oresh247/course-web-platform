@@ -26,7 +26,8 @@
    - `export_service.py` - Экспорт (MD, HTML, PPTX, SCORM)
    - `generation_service.py` - AI генерация
    - `heygen_service.py` - HeyGen интеграция
-   - `video_generation_service.py` - Генерация видео
+   - `video_generation_service.py` - Генерация видео (урок/слайд/курс)
+   - `video_cache_service.py` - Кэш видео (по уроку и по слайду)
    - `test_generator_service.py` - Генерация тестов
 
 3. **AI Layer** (`backend/ai/`) - интеграция с OpenAI
@@ -55,8 +56,14 @@
 ### База данных:
 
 - **3 таблицы**: `courses`, `module_contents`, `lesson_contents`
-- **JSONB** для гибкого хранения структурированных данных
+- **JSONB** для гибкого хранения структурированных данных; в `lesson_contents.content_data` хранятся слайды, у каждого слайда могут быть поля `video_id`, `video_status`, `video_download_url` (видео на слайд)
 - **Автовыбор**: PostgreSQL (если `DATABASE_URL`) или SQLite (dev)
+
+### Редактор слайдов и видео по слайду:
+
+- **Страница** `/courses/:id/content` — редактор контента курса: слева дерево модулей/уроков, справа редактирование слайдов урока (лекция, цели, слайды с полями и кнопкой «Видео» для генерации через HeyGen по каждому слайду).
+- **API**: `PUT .../lessons/{idx}/content` — сохранение контента урока; `POST /api/video/generate-slide-cached?course_id=&module_number=&lesson_index=&slide_index=` — генерация видео для одного слайда.
+- **Кэш видео**: ключ кэша поддерживает опциональный `slide_index` (урок целиком или отдельный слайд).
 
 ---
 
