@@ -407,24 +407,26 @@ function CourseViewPage() {
     }
   }
 
-  // Редактирование урока: при открытии модалки явно подставляем данные выбранного урока в форму
-  // (initialValues у Form применяются только при первом монтировании, поэтому без setFieldsValue открывается последний сохранённый)
+  // Редактирование урока: подставляем данные выбранного урока. Сбрасываем форму и задаём значения с задержкой,
+  // чтобы модалка успела открыться и форма применила данные именно этого урока (не ранее открытого).
   const handleEditLesson = (module, lesson, lessonIndex) => {
     setEditLessonModal({ visible: true, module, lesson, lessonIndex })
+    const payload = {
+      lesson_title: lesson.lesson_title,
+      lesson_goal: lesson.lesson_goal ?? '',
+      format: lesson.format ?? '',
+      estimated_time_minutes: lesson.estimated_time_minutes,
+      content_outline: Array.isArray(lesson.content_outline)
+        ? lesson.content_outline.join('\n')
+        : (lesson.content_outline ?? ''),
+      assessment: lesson.assessment ?? ''
+    }
     setTimeout(() => {
       try {
-        editLessonForm.setFieldsValue({
-          lesson_title: lesson.lesson_title,
-          lesson_goal: lesson.lesson_goal ?? '',
-          format: lesson.format ?? '',
-          estimated_time_minutes: lesson.estimated_time_minutes,
-          content_outline: Array.isArray(lesson.content_outline)
-            ? lesson.content_outline.join('\n')
-            : (lesson.content_outline ?? ''),
-          assessment: lesson.assessment ?? ''
-        })
+        editLessonForm.resetFields()
+        editLessonForm.setFieldsValue(payload)
       } catch (_) {}
-    }, 0)
+    }, 50)
   }
 
   // moduleRef и lessonIndexRef передаём с onFinish, чтобы сохранять именно тот урок, который открыт в модалке (не устаревшее замыкание)
@@ -1318,6 +1320,7 @@ function CourseViewPage() {
       >
         {editLessonModal.lesson && (
           <Form
+            key={`edit-lesson-${editLessonModal.module?.module_number}-${editLessonModal.lessonIndex}`}
             form={editLessonForm}
             layout="vertical"
             initialValues={{
