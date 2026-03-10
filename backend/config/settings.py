@@ -22,7 +22,8 @@ OPENAI_TIMEOUT = int(os.getenv("OPENAI_TIMEOUT", "120"))
 OPENAI_TEMPERATURE_DEFAULT = float(os.getenv("OPENAI_TEMPERATURE_DEFAULT", "0.7"))
 # Максимальные токены для разных типов генерации
 OPENAI_MAX_TOKENS_DEFAULT = int(os.getenv("OPENAI_MAX_TOKENS_DEFAULT", "3000"))
-# OPENAI_MAX_TOKENS_DEFAULT используется для генерации структуры курса
+# Генерация структуры курса (большой JSON): по умолчанию 8000, чтобы ответ не обрезался
+OPENAI_MAX_TOKENS_COURSE_STRUCTURE = int(os.getenv("OPENAI_MAX_TOKENS_COURSE_STRUCTURE", "8000"))
 OPENAI_MAX_TOKENS_MODULE_CONTENT = int(os.getenv("OPENAI_MAX_TOKENS_MODULE_CONTENT", "4096"))
 OPENAI_MAX_TOKENS_LESSON_DETAILED = int(os.getenv("OPENAI_MAX_TOKENS_LESSON_DETAILED", "4000"))
 OPENAI_MAX_TOKENS_TOPIC_MATERIAL = int(os.getenv("OPENAI_MAX_TOKENS_TOPIC_MATERIAL", "4096"))

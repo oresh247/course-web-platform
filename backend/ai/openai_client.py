@@ -136,7 +136,7 @@ class OpenAIClient:
                     user_prompt=prompt,
                     model=model,
                     temperature=0.7,
-                    max_tokens=settings.OPENAI_MAX_TOKENS_DEFAULT,
+                    max_tokens=settings.OPENAI_MAX_TOKENS_COURSE_STRUCTURE,
                     retries=settings.OPENAI_RETRIES_DEFAULT,
                     backoff_seconds=settings.OPENAI_BACKOFF_SECONDS_DEFAULT,
                 )
