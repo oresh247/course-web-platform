@@ -407,37 +407,55 @@ function CourseViewPage() {
     }
   }
 
-  // Редактирование урока
+  // Редактирование урока: при открытии модалки явно подставляем данные выбранного урока в форму
+  // (initialValues у Form применяются только при первом монтировании, поэтому без setFieldsValue открывается последний сохранённый)
   const handleEditLesson = (module, lesson, lessonIndex) => {
     setEditLessonModal({ visible: true, module, lesson, lessonIndex })
+    setTimeout(() => {
+      try {
+        editLessonForm.setFieldsValue({
+          lesson_title: lesson.lesson_title,
+          lesson_goal: lesson.lesson_goal ?? '',
+          format: lesson.format ?? '',
+          estimated_time_minutes: lesson.estimated_time_minutes,
+          content_outline: Array.isArray(lesson.content_outline)
+            ? lesson.content_outline.join('\n')
+            : (lesson.content_outline ?? ''),
+          assessment: lesson.assessment ?? ''
+        })
+      } catch (_) {}
+    }, 0)
   }
 
-  const handleLessonSave = async (values) => {
+  // moduleRef и lessonIndexRef передаём с onFinish, чтобы сохранять именно тот урок, который открыт в модалке (не устаревшее замыкание)
+  const handleLessonSave = async (values, moduleRef, lessonIndexRef) => {
+    const mod = moduleRef ?? editLessonModal.module
+    const idx = lessonIndexRef ?? editLessonModal.lessonIndex
+    if (mod == null || idx == null) return
     try {
       const updatedCourse = { ...course }
-      const moduleIndex = updatedCourse.modules.findIndex(m => m.module_number === editLessonModal.module.module_number)
-      
-      if (moduleIndex !== -1) {
-        // Преобразуем content_outline из строки в массив
-        const contentOutline = typeof values.content_outline === 'string'
-          ? values.content_outline.split('\n').filter(line => line.trim())
-          : values.content_outline
-        
-        updatedCourse.modules[moduleIndex].lessons[editLessonModal.lessonIndex] = {
-          ...updatedCourse.modules[moduleIndex].lessons[editLessonModal.lessonIndex],
-          ...values,
-          content_outline: contentOutline
-        }
-        
-        const courseId = parseInt(id, 10)
+      const moduleIndex = updatedCourse.modules.findIndex(m => m.module_number === mod.module_number)
+      if (moduleIndex === -1) return
+
+      const contentOutline = typeof values.content_outline === 'string'
+        ? values.content_outline.split('\n').filter(line => line.trim())
+        : values.content_outline
+
+      updatedCourse.modules[moduleIndex].lessons[idx] = {
+        ...updatedCourse.modules[moduleIndex].lessons[idx],
+        ...values,
+        content_outline: contentOutline
+      }
+
+      const courseId = parseInt(id, 10)
       if (isNaN(courseId)) {
         throw new Error(`Неверный формат ID курса: ${id}`)
       }
       await coursesApi.updateCourse(courseId, updatedCourse)
-        message.success('Урок обновлен!')
-        setEditLessonModal({ visible: false, module: null, lesson: null, lessonIndex: null })
-        loadCourse()
-      }
+      message.success('Урок обновлен!')
+      editLessonForm.resetFields()
+      setEditLessonModal({ visible: false, module: null, lesson: null, lessonIndex: null })
+      loadCourse()
     } catch (error) {
       console.error('Error updating lesson:', error)
       message.error('Ошибка обновления урока')
@@ -1291,7 +1309,10 @@ function CourseViewPage() {
       <Modal
         title="Редактировать урок"
         open={editLessonModal.visible}
-        onCancel={() => setEditLessonModal({ visible: false, module: null, lesson: null, lessonIndex: null })}
+        onCancel={() => {
+          editLessonForm.resetFields()
+          setEditLessonModal({ visible: false, module: null, lesson: null, lessonIndex: null })
+        }}
         footer={null}
         width={800}
       >
@@ -1309,7 +1330,7 @@ function CourseViewPage() {
                 : editLessonModal.lesson.content_outline,
               assessment: editLessonModal.lesson.assessment
             }}
-            onFinish={handleLessonSave}
+            onFinish={(vals) => handleLessonSave(vals, editLessonModal.module, editLessonModal.lessonIndex)}
           >
             <Form.Item
               label="Название урока"
@@ -1387,7 +1408,10 @@ function CourseViewPage() {
                 <Button type="primary" htmlType="submit">
                   Сохранить изменения
                 </Button>
-                <Button onClick={() => setEditLessonModal({ visible: false, module: null, lesson: null, lessonIndex: null })}>
+                <Button onClick={() => {
+                  editLessonForm.resetFields()
+                  setEditLessonModal({ visible: false, module: null, lesson: null, lessonIndex: null })
+                }}>
                   Отмена
                 </Button>
               </Space>
