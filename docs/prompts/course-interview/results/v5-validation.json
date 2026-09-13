@@ -1,0 +1,110 @@
+[
+  {
+    "id": "V1",
+    "signals": {
+      "necessity": {
+        "status": "confirmed",
+        "value": "include",
+        "evidence": ["раздел нужен"]
+      },
+      "depth": {
+        "status": "confirmed",
+        "value": "deep",
+        "evidence": ["глубоко"]
+      },
+      "knowledge": {
+        "status": "confirmed",
+        "value": "junior",
+        "evidence": ["я начинающий"]
+      },
+      "application": {
+        "status": "confirmed",
+        "value": "concrete",
+        "evidence": ["сопоставлять заказы и клиентов"]
+      }
+    },
+    "action": "next_module",
+    "follow_up_question": null
+  },
+  {
+    "id": "V2",
+    "signals": {
+      "necessity": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "depth": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "knowledge": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "application": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      }
+    },
+    "action": "ask",
+    "follow_up_question": "Нужно ли включить раздел «Соединение таблиц» в курс?"
+  },
+  {
+    "id": "V3",
+    "signals": {
+      "necessity": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "depth": {
+        "status": "confirmed",
+        "value": "brief",
+        "evidence": []
+      },
+      "knowledge": {
+        "status": "confirmed",
+        "value": "middle",
+        "evidence": []
+      },
+      "application": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      }
+    },
+    "action": "ask",
+    "follow_up_question": "Нужно ли включить раздел «Соединение таблиц» в курс?"
+  },
+  {
+    "id": "V4",
+    "signals": {
+      "necessity": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "depth": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "knowledge": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "application": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      }
+    },
+    "action": "finish",
+    "follow_up_question": null
+  }
+]

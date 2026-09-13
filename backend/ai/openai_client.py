@@ -252,7 +252,7 @@ class OpenAIClient:
         model: str = None,
         temperature: float = None,
         max_tokens: int = None,
-        response_format: Optional[Dict[str, str]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
         retries: int = None,
         backoff_seconds: float = None
     ) -> Optional[str]:
@@ -265,7 +265,8 @@ class OpenAIClient:
             model: Модель GPT
             temperature: Температура генерации
             max_tokens: Максимум токенов
-            response_format: Формат ответа (например {"type": "json_object"})
+            response_format: Формат ответа (например {"type": "json_object"}
+                или строгая JSON Schema).
             
         Returns:
             Текст ответа или None
@@ -306,11 +307,17 @@ class OpenAIClient:
                 total_tokens = getattr(usage, "total_tokens", None) if usage else None
                 prompt_tokens = getattr(usage, "prompt_tokens", None) if usage else None
                 completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+                message = response.choices[0].message
+                text = self._extract_message_text(message)
                 logger.info(
                     f"OpenAI call ok | model={kwargs['model']} temp={kwargs['temperature']} max_tokens={kwargs['max_tokens']} "
                     f"attempt={attempt+1} latency_ms={latency_ms} tokens_total={total_tokens} tokens_prompt={prompt_tokens} tokens_completion={completion_tokens}"
                 )
-                return response.choices[0].message.content.strip()
+                if not text:
+                    raise ValueError(
+                        "Модель вернула HTTP 200 без текста в content/reasoning"
+                    )
+                return text
             except Exception as e:
                 last_error = e
                 logger.warning(f"OpenAI call fail attempt {attempt + 1}/{retries + 1}: {e}")
@@ -333,59 +340,222 @@ class OpenAIClient:
         temperature: float = None,
         max_tokens: int = None,
         retries: int = None,
-        backoff_seconds: float = None
+        backoff_seconds: float = None,
+        json_schema: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Вызывает модель в JSON-режиме и парсит результат в dict.
-        Возвращает None, если парсинг не удался.
-        Если модель не поддерживает JSON mode, делает fallback на обычный вызов.
+        """Вызывает модель и возвращает распарсенный JSON-объект.
+
+        ``json_schema`` опционально включает Structured Outputs. Принимается
+        либо definition из ``name``, ``schema`` и необязательного ``strict``,
+        либо чистая JSON Schema (она будет обёрнута в definition). По умолчанию
+        schema используется в строгом режиме.
+
+        Поддержка response_format зависит от конкретной модели и провайдера.
+        Поэтому форматы пробуются по убывающей строгости: JSON Schema,
+        json_object, обычный текст с извлечением JSON. Неподдерживаемый формат
+        не блокирует интервью и не повторяется много раз.
         """
         from backend.config import settings
         if model is None:
             model = settings.OPENAI_MODEL_DEFAULT
-        
+
+        # Для явной схемы сначала пробуем строгий режим. Одна попытка важна:
+        # если выбранная OpenRouter-модель не поддерживает JSON Schema, повтор
+        # того же запроса только расходует лимит и не помогает пользователю.
+        if json_schema is not None:
+            schema_response_format = self._build_json_schema_response_format(json_schema)
+            if schema_response_format is not None:
+                parsed = self._call_and_parse_json(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=schema_response_format,
+                    retries=0,
+                    backoff_seconds=backoff_seconds,
+                )
+                if parsed is not None:
+                    return parsed
+                logger.warning(
+                    "Structured Outputs недоступен или вернул невалидный JSON "
+                    "для model=%s; пробуем совместимый fallback",
+                    model,
+                )
+
         # Список моделей, которые поддерживают JSON mode (OpenAI и OpenRouter-идентификаторы)
         json_mode_models = [
             "gpt-4-turbo-preview", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini",
             "gpt-3.5-turbo", "gpt-3.5-turbo-16k",
             "claude-3", "claude-3.5", "claude-3-opus", "claude-3-sonnet",
         ]
-        # OpenRouter поддерживает JSON mode для многих моделей — при использовании OpenRouter пробуем всегда
+        # У OpenRouter поддержка JSON mode определяется маршрутом к конкретной
+        # модели. Делаем одну попытку и ниже обязательно откатываемся к обычному
+        # вызову, если endpoint отверг response_format.
         use_json_mode = self._use_openrouter or any(
             json_model in model.lower() for json_model in json_mode_models
         )
-        
+
         if use_json_mode:
-            content = self.call_ai(
+            parsed = self._call_and_parse_json(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
-                retries=retries,
+                retries=0,
                 backoff_seconds=backoff_seconds,
             )
+            if parsed is not None:
+                return parsed
+            logger.warning(
+                "JSON mode недоступен или вернул невалидный JSON для model=%s; "
+                "используем текстовый fallback",
+                model,
+            )
+
+        # Финальный fallback сохраняет прежнюю возможность получать JSON от
+        # моделей без response_format. Здесь оставляем обычное число ретраев:
+        # это уже не ошибка совместимости формата, а реальный сетевой вызов.
+        return self._call_and_parse_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=None,
+            retries=retries,
+            backoff_seconds=backoff_seconds,
+        )
+
+    @staticmethod
+    def _normalize_text_payload(value: Any) -> Optional[str]:
+        """Сводит строку, список частей или вложенный объект к непустому тексту."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+            return text or None
+        if isinstance(value, list):
+            parts: List[str] = []
+            for item in value:
+                if isinstance(item, (str, list)):
+                    raw_item: Any = item
+                elif isinstance(item, dict):
+                    raw_item = item.get("text") or item.get("content")
+                else:
+                    raw_item = getattr(item, "text", None) or getattr(item, "content", None)
+                part = OpenAIClient._normalize_text_payload(raw_item)
+                if part:
+                    parts.append(part)
+            joined = "\n".join(parts).strip()
+            return joined or None
+        return None
+
+    @staticmethod
+    def _extract_message_text(message: Any) -> Optional[str]:
+        """Читает ответ модели из content, затем из reasoning-полей.
+
+        Reasoning-модели OpenRouter часто оставляют ``content=None`` и кладут
+        текст в ``reasoning`` / ``reasoning_content``. Пустой content больше
+        не считается исключением: JSON-fallback остаётся только если текста нет
+        или из него не собирается JSON.
+        """
+        if message is None:
+            return None
+
+        content = OpenAIClient._normalize_text_payload(getattr(message, "content", None))
+        if content:
+            return content
+
+        for field_name in ("reasoning", "reasoning_content"):
+            reasoning = OpenAIClient._normalize_text_payload(getattr(message, field_name, None))
+            if reasoning:
+                logger.info("Ответ модели взят из поля %s, content пуст", field_name)
+                return reasoning
+
+        if isinstance(message, dict):
+            content = OpenAIClient._normalize_text_payload(message.get("content"))
+            if content:
+                return content
+            for field_name in ("reasoning", "reasoning_content"):
+                reasoning = OpenAIClient._normalize_text_payload(message.get(field_name))
+                if reasoning:
+                    logger.info("Ответ модели взят из поля %s, content пуст", field_name)
+                    return reasoning
+        return None
+
+    @staticmethod
+    def _build_json_schema_response_format(
+        json_schema: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Нормализует schema definition в Chat Completions response_format.
+
+        Поддерживаются оба удобных входа:
+
+        * ``{"name": "result", "schema": {...}, "strict": True}``;
+        * чистая JSON Schema, например ``{"type": "object", ...}``.
+
+        Также допускается уже собранный ``{"type": "json_schema",
+        "json_schema": {...}}``. Некорректная схема не ломает основной
+        fallback и только пропускает попытку Structured Outputs.
+        """
+        if not isinstance(json_schema, dict):
+            logger.warning("json_schema должен быть объектом; Structured Outputs пропущен")
+            return None
+
+        if json_schema.get("type") == "json_schema":
+            definition = json_schema.get("json_schema")
+            if not isinstance(definition, dict):
+                logger.warning("json_schema.json_schema должен быть объектом")
+                return None
+            definition = dict(definition)
+        elif "schema" in json_schema:
+            definition = dict(json_schema)
         else:
-            # Fallback: вызываем без JSON mode и парсим ответ
-            logger.warning(f"Модель {model} не поддерживает JSON mode, используем fallback")
-            content = self.call_ai(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format=None,
-                retries=retries,
-                backoff_seconds=backoff_seconds,
-            )
-        
+            definition = {
+                "name": "structured_response",
+                "schema": dict(json_schema),
+            }
+
+        schema = definition.get("schema")
+        if not isinstance(schema, dict):
+            logger.warning("json_schema.schema должен быть объектом")
+            return None
+
+        definition.setdefault("name", "structured_response")
+        definition.setdefault("strict", True)
+        return {"type": "json_schema", "json_schema": definition}
+
+    def _call_and_parse_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        response_format: Optional[Dict[str, Any]],
+        retries: Optional[int],
+        backoff_seconds: Optional[float],
+    ) -> Optional[Dict[str, Any]]:
+        """Выполняет один вариант формата и извлекает JSON из его ответа."""
+        content = self.call_ai(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            retries=retries,
+            backoff_seconds=backoff_seconds,
+        )
         if content is None:
             return None
+
         try:
-            # Пытаемся распарсить JSON
             return json.loads(content)
         except Exception:
-            # Fallback: попытаться вытащить JSON из текста
             from backend.ai.json_sanitizer import extract_json
             return extract_json(content, expected_key=None)
-

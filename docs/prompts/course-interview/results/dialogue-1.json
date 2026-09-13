@@ -1,0 +1,29 @@
+[
+  {
+    "id": "T1",
+    "signals": {
+      "necessity": {
+        "status": "confirmed",
+        "value": "include",
+        "evidence": ["Раздел нужен."]
+      },
+      "depth": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "knowledge": {
+        "status": "missing",
+        "value": null,
+        "evidence": []
+      },
+      "application": {
+        "status": "confirmed",
+        "value": "concrete",
+        "evidence": ["Хочу соединять заказы и клиентов для отчёта о продажах."]
+      }
+    },
+    "action": "ask",
+    "follow_up_question": "Какой объём по этому разделу вам нужен: краткий обзор, стандартная проработка или углублённое изучение?"
+  }
+]

@@ -47,8 +47,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # React dev server
+        "http://localhost:3001",  # Vite fallback port
         "http://localhost:5173",  # Vite dev server
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
         "http://127.0.0.1:5173",
         "https://course-builder-frontend.onrender.com",  # Production frontend
     ],
@@ -59,12 +61,14 @@ app.add_middleware(
 
 # Импортируем роутеры (разделенные на модули)
 from backend.api.courses_routes import router as courses_router
+from backend.api.course_briefs_routes import router as course_briefs_router
 from backend.api.modules_routes import router as modules_router
 from backend.api.lessons_routes import router as lessons_router
 from backend.routes.video_routes import router as video_router
 
 # Подключаем роутеры
 app.include_router(courses_router)
+app.include_router(course_briefs_router)
 app.include_router(modules_router)
 app.include_router(lessons_router)
 app.include_router(video_router)
@@ -116,4 +120,3 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
-

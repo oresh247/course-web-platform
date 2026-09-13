@@ -1,0 +1,46 @@
+[
+  {
+    "id": "H1",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": []},
+      "depth": {"status": "confirmed", "value": "deep", "evidence": []},
+      "knowledge": {"status": "confirmed", "value": "senior", "evidence": []},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["Хочу отработать отказ из-за цены на примере продажи сервисного контракта."]}
+    },
+    "action": "finish",
+    "follow_up_question": null
+  },
+  {
+    "id": "H2",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": []},
+      "depth": {"status": "confirmed", "value": "deep", "evidence": []},
+      "knowledge": {"status": "missing", "value": null, "evidence": []},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["хочу научиться соединять заказы и клиентов."]}
+    },
+    "action": "ask",
+    "follow_up_question": "Каков ваш текущий уровень знаний в соединении таблиц?"
+  },
+  {
+    "id": "H3",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": []},
+      "depth": {"status": "confirmed", "value": "standard", "evidence": []},
+      "knowledge": {"status": "missing", "value": null, "evidence": ["я всё ещё не могу описать свои знания."]},
+      "application": {"status": "missing", "value": null, "evidence": []}
+    },
+    "action": "finish",
+    "follow_up_question": null
+  },
+  {
+    "id": "H4",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": []},
+      "depth": {"status": "confirmed", "value": "deep", "evidence": []},
+      "knowledge": {"status": "conflict", "value": null, "evidence": ["На самом деле я никогда не работал с JOIN и не умею соединять таблицы."]},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["чтобы сопоставить заказы и клиентов."]}
+    },
+    "action": "ask",
+    "follow_up_question": "Какой уровень знаний о соединении таблиц указать: начальный или продвинутый?"
+  }
+]

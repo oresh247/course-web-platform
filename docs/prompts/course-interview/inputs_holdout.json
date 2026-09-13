@@ -1,0 +1,88 @@
+[
+  {
+    "id": "H1",
+    "input": {
+      "topic": "Работа с возражениями",
+      "module": {
+        "id": "m7",
+        "title": "Переговоры с клиентом",
+        "goal": "Выявлять причину отказа"
+      },
+      "module_count": 7,
+      "completed_modules": 6,
+      "included_modules": 5,
+      "followup_count": 0,
+      "max_followups": 2,
+      "history": [],
+      "answer": {
+        "depth": "deep",
+        "knowledge_level": "senior",
+        "comment": "Раздел нужен глубоко. Продвинутый опыт: веду переговоры 5 лет. Хочу отработать отказ из-за цены на примере продажи сервисного контракта."
+      }
+    }
+  },
+  {
+    "id": "H2",
+    "input": {
+      "topic": "SQL для бизнес-аналитиков",
+      "module": {
+        "id": "m1",
+        "title": "Соединение таблиц",
+        "goal": "Сопоставлять заказы и клиентов"
+      },
+      "module_count": 4,
+      "completed_modules": 0,
+      "included_modules": 0,
+      "followup_count": 0,
+      "max_followups": 2,
+      "history": [],
+      "answer": {
+        "depth": "deep",
+        "comment": "Раздел нужен глубоко, хочу научиться соединять заказы и клиентов."
+      }
+    }
+  },
+  {
+    "id": "H3",
+    "input": {
+      "topic": "SQL для бизнес-аналитиков",
+      "module": {
+        "id": "m1",
+        "title": "Соединение таблиц",
+        "goal": "Сопоставлять заказы и клиентов"
+      },
+      "module_count": 2,
+      "completed_modules": 1,
+      "included_modules": 1,
+      "followup_count": 2,
+      "max_followups": 2,
+      "history": [],
+      "answer": {
+        "depth": "standard",
+        "comment": "Раздел нужен стандартно, но я всё ещё не могу описать свои знания."
+      }
+    }
+  },
+  {
+    "id": "H4",
+    "input": {
+      "topic": "SQL для бизнес-аналитиков",
+      "module": {
+        "id": "m1",
+        "title": "Соединение таблиц",
+        "goal": "Сопоставлять заказы и клиентов"
+      },
+      "module_count": 4,
+      "completed_modules": 0,
+      "included_modules": 0,
+      "followup_count": 0,
+      "max_followups": 2,
+      "history": [],
+      "answer": {
+        "depth": "deep",
+        "knowledge_level": "senior",
+        "comment": "На самом деле я никогда не работал с JOIN и не умею соединять таблицы. Раздел нужен глубоко, чтобы сопоставить заказы и клиентов."
+      }
+    }
+  }
+]

@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
 from urllib.parse import urlparse
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,37 @@ class RenderDatabase:
                             UNIQUE (course_id, module_number, lesson_index)
                         )
                     """)
+
+                    # Состояние интервью хранится отдельно, чтобы черновые
+                    # outline не попадали в список готовых курсов.
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS course_briefs (
+                            id TEXT PRIMARY KEY,
+                            topic TEXT NOT NULL,
+                            status VARCHAR(64) NOT NULL DEFAULT 'waiting_for_user',
+                            preliminary_outline JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            decisions JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            current_question_index INTEGER NOT NULL DEFAULT 0,
+                            total_questions INTEGER NOT NULL DEFAULT 0,
+                            final_outline JSONB,
+                            revision INTEGER NOT NULL DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS course_brief_messages (
+                            id SERIAL PRIMARY KEY,
+                            brief_id TEXT NOT NULL,
+                            role VARCHAR(32) NOT NULL,
+                            content TEXT NOT NULL,
+                            sequence INTEGER NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (brief_id) REFERENCES course_briefs (id) ON DELETE CASCADE,
+                            UNIQUE (brief_id, sequence)
+                        )
+                    """)
                     
                     # Миграции для совместимости со старыми схемами таблицы
                     try:
@@ -171,6 +203,11 @@ class RenderDatabase:
                     cursor.execute("""
                         CREATE INDEX IF NOT EXISTS idx_lesson_contents_course_id 
                         ON lesson_contents (course_id)
+                    """)
+
+                    cursor.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_course_brief_messages_brief_sequence
+                        ON course_brief_messages (brief_id, sequence)
                     """)
                     
                     conn.commit()
@@ -366,6 +403,228 @@ class RenderDatabase:
             logger.error(f"Ошибка удаления курса: {e}")
             raise
     
+    def create_course_brief(self, brief_data: Dict[str, Any]) -> str:
+        """Создаёт долговечное состояние одного интервью по структуре курса."""
+        brief_id = str(brief_data.get("id") or uuid4())
+        preliminary_outline = brief_data.get("preliminary_outline", {})
+        decisions = brief_data.get("decisions", {})
+        final_outline = brief_data.get("final_outline")
+
+        if preliminary_outline is None:
+            preliminary_outline = {}
+        if decisions is None:
+            decisions = {}
+
+        current_question_index = brief_data.get("current_question_index")
+        total_questions = brief_data.get("total_questions")
+        revision = brief_data.get("revision")
+
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO course_briefs (
+                            id, topic, status, preliminary_outline, decisions,
+                            current_question_index, total_questions, final_outline,
+                            revision
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            brief_id,
+                            brief_data.get("topic") or "",
+                            brief_data.get("status") or "waiting_for_user",
+                            psycopg2.extras.Json(
+                                preliminary_outline,
+                                dumps=lambda value: json.dumps(value, ensure_ascii=False),
+                            ),
+                            psycopg2.extras.Json(
+                                decisions,
+                                dumps=lambda value: json.dumps(value, ensure_ascii=False),
+                            ),
+                            0 if current_question_index is None else current_question_index,
+                            0 if total_questions is None else total_questions,
+                            psycopg2.extras.Json(
+                                final_outline,
+                                dumps=lambda value: json.dumps(value, ensure_ascii=False),
+                            )
+                            if final_outline is not None
+                            else None,
+                            0 if revision is None else revision,
+                        ),
+                    )
+                    conn.commit()
+
+            logger.info("✅ Создано интервью по структуре курса: %s", brief_id)
+            return brief_id
+        except psycopg2.Error as e:
+            logger.error("Error creating course brief: %s", e)
+            raise
+
+    def get_course_brief(self, brief_id: str) -> Optional[Dict[str, Any]]:
+        """Возвращает одно интервью, декодируя JSONB-поля в Python-объекты."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute(
+                        "SELECT * FROM course_briefs WHERE id = %s",
+                        (brief_id,),
+                    )
+                    row = cursor.fetchone()
+
+                    if not row:
+                        return None
+
+                    def decode_json(value: Any, default: Any) -> Any:
+                        if value is None:
+                            return default
+                        return json.loads(value) if isinstance(value, str) else value
+
+                    created_at = row["created_at"]
+                    updated_at = row["updated_at"]
+                    return {
+                        "id": row["id"],
+                        "topic": row["topic"],
+                        "status": row["status"],
+                        "preliminary_outline": decode_json(
+                            row["preliminary_outline"], {}
+                        ),
+                        "decisions": decode_json(row["decisions"], {}),
+                        "current_question_index": row["current_question_index"],
+                        "total_questions": row["total_questions"],
+                        "final_outline": decode_json(row["final_outline"], None),
+                        "revision": row["revision"],
+                        "created_at": created_at.isoformat()
+                        if hasattr(created_at, "isoformat")
+                        else created_at,
+                        "updated_at": updated_at.isoformat()
+                        if hasattr(updated_at, "isoformat")
+                        else updated_at,
+                    }
+        except psycopg2.Error as e:
+            logger.error("Error retrieving course brief: %s", e)
+            raise
+
+    def update_course_brief(
+        self,
+        brief_id: str,
+        updates: Dict[str, Any],
+        expected_revision: Optional[int] = None,
+    ) -> bool:
+        """Обновляет разрешённые поля и при необходимости проверяет ревизию сессии."""
+        mutable_fields = (
+            "topic",
+            "status",
+            "preliminary_outline",
+            "decisions",
+            "current_question_index",
+            "total_questions",
+            "final_outline",
+            "revision",
+        )
+        json_fields = {"preliminary_outline", "decisions", "final_outline"}
+        set_clauses: List[str] = []
+        params: List[Any] = []
+
+        for field in mutable_fields:
+            if field not in updates:
+                continue
+
+            value = updates[field]
+            if field in json_fields:
+                if value is None and field != "final_outline":
+                    value = {}
+                value = (
+                    psycopg2.extras.Json(
+                        value,
+                        dumps=lambda item: json.dumps(item, ensure_ascii=False),
+                    )
+                    if value is not None
+                    else None
+                )
+
+            set_clauses.append(f"{field} = %s")
+            params.append(value)
+
+        if not set_clauses:
+            return False
+
+        set_clauses.append("updated_at = %s")
+        params.append(datetime.now())
+        where_clause = "id = %s"
+        params.append(brief_id)
+        if expected_revision is not None:
+            where_clause += " AND revision = %s"
+            params.append(expected_revision)
+
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        f"UPDATE course_briefs SET {', '.join(set_clauses)} WHERE {where_clause}",
+                        params,
+                    )
+                    conn.commit()
+                    return cursor.rowcount > 0
+        except psycopg2.Error as e:
+            logger.error("Error updating course brief: %s", e)
+            raise
+
+    def add_course_brief_message(
+        self,
+        brief_id: str,
+        role: str,
+        content: str,
+        sequence: int,
+    ) -> None:
+        """Добавляет одно упорядоченное сообщение в интервью."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO course_brief_messages (brief_id, role, content, sequence)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (brief_id, role, content, sequence),
+                    )
+                    conn.commit()
+        except psycopg2.Error as e:
+            logger.error("Error adding course-brief message: %s", e)
+            raise
+
+    def get_course_brief_messages(self, brief_id: str) -> List[Dict[str, Any]]:
+        """Возвращает сообщения в детерминированном порядке диалога."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, brief_id, role, content, sequence, created_at
+                        FROM course_brief_messages
+                        WHERE brief_id = %s
+                        ORDER BY sequence ASC, id ASC
+                        """,
+                        (brief_id,),
+                    )
+                    rows = cursor.fetchall()
+                    return [
+                        {
+                            "id": row["id"],
+                            "brief_id": row["brief_id"],
+                            "role": row["role"],
+                            "content": row["content"],
+                            "sequence": row["sequence"],
+                            "created_at": row["created_at"].isoformat()
+                            if hasattr(row["created_at"], "isoformat")
+                            else row["created_at"],
+                        }
+                        for row in rows
+                    ]
+        except psycopg2.Error as e:
+            logger.error("Error retrieving course-brief messages: %s", e)
+            raise
+
     def save_module_content(
         self, 
         course_id: int, 

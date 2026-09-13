@@ -6,6 +6,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 develop-eggs/
@@ -53,6 +54,7 @@ lerna-debug.log*
 dist/
 dist-ssr/
 *.local
+.local/
 
 # Render
 .render/
@@ -83,4 +85,3 @@ htmlcov/
 
 # Local env files (not for Git)
 render-database.env
-

@@ -1,0 +1,134 @@
+[
+  {
+    "id": "D1",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": ["Этот раздел нужен"]},
+      "depth": {"status": "confirmed", "value": "standard", "evidence": ["Хочу стандартный объём с теорией и практикой"]},
+      "knowledge": {"status": "confirmed", "value": "junior", "evidence": ["начинающий"]},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["соединять заказы и клиентов для отчёта о продажах"]}
+    },
+    "action": "next_module",
+    "follow_up_question": null
+  },
+  {
+    "id": "D2",
+    "signals": {
+      "necessity": {"status": "missing", "value": null, "evidence": []},
+      "depth": {"status": "missing", "value": null, "evidence": []},
+      "knowledge": {"status": "missing", "value": null, "evidence": []},
+      "application": {"status": "missing", "value": null, "evidence": []}
+    },
+    "action": "ask",
+    "follow_up_question": "Включить этот раздел в курс?"
+  },
+  {
+    "id": "D3",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "exclude", "evidence": []},
+      "depth": {"status": "not_applicable", "value": null, "evidence": []},
+      "knowledge": {"status": "not_applicable", "value": null, "evidence": []},
+      "application": {"status": "not_applicable", "value": null, "evidence": []}
+    },
+    "action": "next_module",
+    "follow_up_question": null
+  },
+  {
+    "id": "D4",
+    "signals": {
+      "necessity": {"status": "conflict", "value": null, "evidence": ["Раздел обязательно нужен"]},
+      "depth": {"status": "confirmed", "value": "deep", "evidence": ["хочу глубоко изучить JOIN"]},
+      "knowledge": {"status": "missing", "value": null, "evidence": []},
+      "application": {"status": "missing", "value": null, "evidence": []}
+    },
+    "action": "ask",
+    "follow_up_question": "Раздел включить или исключить из курса?"
+  },
+  {
+    "id": "D5",
+    "signals": {
+      "necessity": {"status": "missing", "value": null, "evidence": []},
+      "depth": {"status": "missing", "value": null, "evidence": []},
+      "knowledge": {"status": "missing", "value": null, "evidence": []},
+      "application": {"status": "missing", "value": null, "evidence": []}
+    },
+    "action": "ask",
+    "follow_up_question": "Включить этот раздел в курс?"
+  },
+  {
+    "id": "D6",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": ["нужен краткий обзор"]},
+      "depth": {"status": "confirmed", "value": "brief", "evidence": ["нужен краткий обзор"]},
+      "knowledge": {"status": "confirmed", "value": "junior", "evidence": ["Я начинающий"]},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["Хочу соединять две таблицы в отчёте о заказах"]}
+    },
+    "action": "next_module",
+    "follow_up_question": null
+  },
+  {
+    "id": "D7",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "exclude", "evidence": []},
+      "depth": {"status": "not_applicable", "value": null, "evidence": []},
+      "knowledge": {"status": "not_applicable", "value": null, "evidence": []},
+      "application": {"status": "not_applicable", "value": null, "evidence": []}
+    },
+    "action": "revise_goal",
+    "follow_up_question": "Какого результата вы хотите достичь в курсе?"
+  },
+  {
+    "id": "D8",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен в стандартном объёме"]},
+      "depth": {"status": "confirmed", "value": "standard", "evidence": ["Раздел нужен в стандартном объёме"]},
+      "knowledge": {"status": "missing", "value": null, "evidence": []},
+      "application": {"status": "missing", "value": null, "evidence": []}
+    },
+    "action": "next_module",
+    "follow_up_question": null
+  },
+  {
+    "id": "H1",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен глубоко"]},
+      "depth": {"status": "confirmed", "value": "deep", "evidence": ["Раздел нужен глубоко"]},
+      "knowledge": {"status": "confirmed", "value": "senior", "evidence": ["Продвинутый опыт: веду переговоры 5 лет"]},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["отработать отказ из-за цены на примере продажи сервисного контракта"]}
+    },
+    "action": "finish",
+    "follow_up_question": null
+  },
+  {
+    "id": "H2",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен глубоко"]},
+      "depth": {"status": "confirmed", "value": "deep", "evidence": ["Раздел нужен глубоко"]},
+      "knowledge": {"status": "missing", "value": null, "evidence": []},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["научиться соединять заказы и клиентов"]}
+    },
+    "action": "ask",
+    "follow_up_question": "Как бы вы описали свой текущий опыт работы с SQL?"
+  },
+  {
+    "id": "H3",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен стандартно"]},
+      "depth": {"status": "confirmed", "value": "standard", "evidence": ["Раздел нужен стандартно"]},
+      "knowledge": {"status": "missing", "value": null, "evidence": []},
+      "application": {"status": "missing", "value": null, "evidence": []}
+    },
+    "action": "finish",
+    "follow_up_question": null
+  },
+  {
+    "id": "H4",
+    "signals": {
+      "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен глубоко"]},
+      "depth": {"status": "confirmed", "value": "deep", "evidence": ["Раздел нужен глубоко"]},
+      "knowledge": {"status": "conflict", "value": null, "evidence": ["я никогда не работал с JOIN и не умею соединять таблицы"]},
+      "application": {"status": "confirmed", "value": "concrete", "evidence": ["сопоставить заказы и клиентов"]}
+    },
+    "action": "ask",
+    "follow_up_question": "Вы всё-таки работали с JOIN или ещё не работали с ними?"
+  }
+]

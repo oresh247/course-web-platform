@@ -45,6 +45,10 @@ course-web-platform/
 
 📚 **Подробная документация архитектуры:** [`docs/ARCHITECTURE_NEW.md`](docs/ARCHITECTURE_NEW.md)
 
+🧪 **Локальная проверка нового Course Brief MVP:** [`docs/LOCAL_COURSE_BRIEF_MVP.md`](docs/LOCAL_COURSE_BRIEF_MVP.md)
+
+Для локального UI без `npm` в PATH используйте [`frontend/start-local-demo.ps1`](frontend/start-local-demo.ps1).
+
 📐 **Принципы архитектуры для разработки:** [`.cursor/rules/architecture-principles.mdc`](.cursor/rules/architecture-principles.mdc)
 
 ## 🚀 Быстрый старт
@@ -362,4 +366,3 @@ MIT License
 ---
 
 **Создано с использованием AI (GPT-4) 🤖**
-

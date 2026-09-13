@@ -3,10 +3,12 @@
 """
 import sqlite3
 import json
+import os
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
 from pathlib import Path
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,42 @@ class CourseDatabase:
                     FOREIGN KEY (course_id) REFERENCES courses (id) ON DELETE CASCADE,
                     UNIQUE (course_id, module_number, lesson_index)
                 )
+            """)
+
+            # Состояние интервью хранится отдельно, чтобы черновой outline
+            # никогда не появлялся среди созданных курсов.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS course_briefs (
+                    id TEXT PRIMARY KEY,
+                    topic TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'waiting_for_user',
+                    preliminary_outline TEXT NOT NULL DEFAULT '{}',
+                    decisions TEXT NOT NULL DEFAULT '{}',
+                    current_question_index INTEGER NOT NULL DEFAULT 0,
+                    total_questions INTEGER NOT NULL DEFAULT 0,
+                    final_outline TEXT,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS course_brief_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    brief_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (brief_id) REFERENCES course_briefs (id) ON DELETE CASCADE,
+                    UNIQUE (brief_id, sequence)
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_course_brief_messages_brief_sequence
+                ON course_brief_messages (brief_id, sequence)
             """)
             
             # Добавляем колонки для видео, если их еще нет (для существующих БД)
@@ -256,6 +294,171 @@ class CourseDatabase:
             conn.commit()
             
             return cursor.rowcount > 0
+
+    def create_course_brief(self, brief_data: Dict[str, Any]) -> str:
+        """Создаёт долговечное состояние одного интервью по структуре курса."""
+        brief_id = str(brief_data.get("id") or uuid4())
+        preliminary_outline = brief_data.get("preliminary_outline", {})
+        decisions = brief_data.get("decisions", {})
+        final_outline = brief_data.get("final_outline")
+
+        if preliminary_outline is None:
+            preliminary_outline = {}
+        if decisions is None:
+            decisions = {}
+
+        current_question_index = brief_data.get("current_question_index")
+        total_questions = brief_data.get("total_questions")
+        revision = brief_data.get("revision")
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO course_briefs (
+                    id, topic, status, preliminary_outline, decisions,
+                    current_question_index, total_questions, final_outline,
+                    revision
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    brief_id,
+                    brief_data.get("topic") or "",
+                    brief_data.get("status") or "waiting_for_user",
+                    json.dumps(preliminary_outline, ensure_ascii=False),
+                    json.dumps(decisions, ensure_ascii=False),
+                    0 if current_question_index is None else current_question_index,
+                    0 if total_questions is None else total_questions,
+                    json.dumps(final_outline, ensure_ascii=False)
+                    if final_outline is not None
+                    else None,
+                    0 if revision is None else revision,
+                ),
+            )
+            conn.commit()
+
+        logger.info("✅ Создано интервью по структуре курса: %s", brief_id)
+        return brief_id
+
+    def get_course_brief(self, brief_id: str) -> Optional[Dict[str, Any]]:
+        """Возвращает одно интервью, декодируя JSON-поля в Python-объекты."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM course_briefs WHERE id = ?", (brief_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                "id": row["id"],
+                "topic": row["topic"],
+                "status": row["status"],
+                "preliminary_outline": json.loads(row["preliminary_outline"]),
+                "decisions": json.loads(row["decisions"]),
+                "current_question_index": row["current_question_index"],
+                "total_questions": row["total_questions"],
+                "final_outline": json.loads(row["final_outline"])
+                if row["final_outline"] is not None
+                else None,
+                "revision": row["revision"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    def update_course_brief(
+        self,
+        brief_id: str,
+        updates: Dict[str, Any],
+        expected_revision: Optional[int] = None,
+    ) -> bool:
+        """Обновляет разрешённые поля и при необходимости проверяет ревизию сессии."""
+        mutable_fields = (
+            "topic",
+            "status",
+            "preliminary_outline",
+            "decisions",
+            "current_question_index",
+            "total_questions",
+            "final_outline",
+            "revision",
+        )
+        json_fields = {"preliminary_outline", "decisions", "final_outline"}
+        set_clauses: List[str] = []
+        params: List[Any] = []
+
+        for field in mutable_fields:
+            if field not in updates:
+                continue
+
+            value = updates[field]
+            if field in json_fields:
+                if value is None and field != "final_outline":
+                    value = {}
+                value = (
+                    json.dumps(value, ensure_ascii=False)
+                    if value is not None
+                    else None
+                )
+
+            set_clauses.append(f"{field} = ?")
+            params.append(value)
+
+        if not set_clauses:
+            return False
+
+        set_clauses.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        where_clause = "id = ?"
+        params.append(brief_id)
+        if expected_revision is not None:
+            where_clause += " AND revision = ?"
+            params.append(expected_revision)
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"UPDATE course_briefs SET {', '.join(set_clauses)} WHERE {where_clause}",
+                params,
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def add_course_brief_message(
+        self,
+        brief_id: str,
+        role: str,
+        content: str,
+        sequence: int,
+    ) -> None:
+        """Добавляет одно упорядоченное сообщение в интервью."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO course_brief_messages (brief_id, role, content, sequence)
+                VALUES (?, ?, ?, ?)
+                """,
+                (brief_id, role, content, sequence),
+            )
+            conn.commit()
+
+    def get_course_brief_messages(self, brief_id: str) -> List[Dict[str, Any]]:
+        """Возвращает сообщения в детерминированном порядке диалога."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, brief_id, role, content, sequence, created_at
+                FROM course_brief_messages
+                WHERE brief_id = ?
+                ORDER BY sequence ASC, id ASC
+                """,
+                (brief_id,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
     
     def save_module_content(
         self, 
@@ -776,6 +979,6 @@ class CourseDatabase:
             return cursor.rowcount
 
 
-# Глобальный экземпляр базы данных
-db = CourseDatabase()
-
+# Глобальный экземпляр базы данных. Путь можно переопределить для локальной
+# проверки, не затрагивая рабочую SQLite-базу разработчика.
+db = CourseDatabase(os.getenv("DATABASE_PATH", "courses.db"))

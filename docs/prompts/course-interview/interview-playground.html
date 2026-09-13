@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Course Interview Playground</title>
+  <style>
+    :root {
+      --bg: #12151a;
+      --panel: #1a1f27;
+      --panel-2: #222833;
+      --line: #2e3644;
+      --text: #e8edf5;
+      --muted: #9aa6b8;
+      --accent: #3d9a7a;
+      --accent-hover: #48b08c;
+      --warn: #c9a227;
+      --danger: #c45c5c;
+      --ok: #4caf82;
+      --focus: #5b9fd4;
+      --radius: 10px;
+      --font: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+      --mono: "Cascadia Code", "Consolas", "Courier New", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, #1d2a33 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #24301f 0%, transparent 50%),
+        var(--bg);
+    }
+
+    header {
+      padding: 1.25rem 1.5rem 0.75rem;
+      border-bottom: 1px solid var(--line);
+      background: rgba(18, 21, 26, 0.85);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header h1 {
+      margin: 0 0 0.35rem;
+      font-size: 1.25rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      max-width: 70rem;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 1rem;
+      padding: 1rem 1.5rem 2rem;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 980px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+
+    .panel h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .stack { display: flex; flex-direction: column; gap: 0.85rem; }
+    .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+
+    input[type="text"],
+    textarea,
+    select {
+      width: 100%;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.55rem 0.7rem;
+      font: inherit;
+    }
+
+    textarea {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      resize: vertical;
+      min-height: 8rem;
+    }
+
+    textarea.answer-comment {
+      font-family: var(--font);
+      min-height: 4.5rem;
+    }
+
+    button, .chip {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.45rem 0.75rem;
+      font: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    button:hover { border-color: var(--focus); }
+    button.primary {
+      background: var(--accent);
+      border-color: transparent;
+      color: #06140f;
+      font-weight: 600;
+    }
+    button.primary:hover { background: var(--accent-hover); }
+    button.ghost { background: transparent; }
+
+    .chip.active {
+      background: rgba(61, 154, 122, 0.22);
+      border-color: var(--accent);
+      color: #b7f0d6;
+    }
+
+    .status-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .stat {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.55rem 0.65rem;
+    }
+
+    .stat .k { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat .v { margin-top: 0.15rem; font-weight: 600; font-size: 0.95rem; }
+
+    .question-box {
+      background: linear-gradient(180deg, #24302b, #1d2521);
+      border: 1px solid #355447;
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+      min-height: 3.5rem;
+    }
+
+    .question-box .label { font-size: 0.75rem; color: #8fb9a6; margin-bottom: 0.35rem; }
+    .question-box .text { font-size: 1.05rem; line-height: 1.4; }
+
+    .signals {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+
+    @media (max-width: 560px) {
+      .signals { grid-template-columns: 1fr; }
+    }
+
+    .signal {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.55rem 0.65rem;
+      font-size: 0.85rem;
+    }
+
+    .signal .name { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; }
+    .badge {
+      display: inline-block;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      border: 1px solid var(--line);
+      margin-right: 0.25rem;
+    }
+    .badge.confirmed { border-color: var(--ok); color: #9be4c0; }
+    .badge.missing { border-color: var(--warn); color: #e6d18a; }
+    .badge.conflict { border-color: var(--danger); color: #f0a8a8; }
+    .badge.not_applicable { color: var(--muted); }
+
+    .toast {
+      position: fixed;
+      right: 1rem;
+      bottom: 1rem;
+      background: #173328;
+      border: 1px solid var(--accent);
+      color: #d7f5e8;
+      padding: 0.7rem 1rem;
+      border-radius: 8px;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      z-index: 50;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    .error {
+      color: #f0a8a8;
+      background: rgba(196, 92, 92, 0.12);
+      border: 1px solid rgba(196, 92, 92, 0.35);
+      border-radius: 8px;
+      padding: 0.55rem 0.7rem;
+      font-size: 0.85rem;
+      display: none;
+    }
+    .error.show { display: block; }
+
+    .modules-editor textarea { min-height: 5.5rem; }
+    .hint { color: var(--muted); font-size: 0.8rem; }
+
+    details.prompt-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      padding: 0.5rem 0.7rem;
+    }
+    details.prompt-box summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    details.prompt-box textarea {
+      margin-top: 0.5rem;
+      min-height: 10rem;
+    }
+
+    .log {
+      max-height: 12rem;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      background: #0e1116;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.55rem 0.7rem;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Course Interview Playground</h1>
+    <p>
+      Готовит JSON для чата с ИИ (Gemini / Grok / ChatGPT), парсит ответ модели и даёт кнопки для следующего хода.
+      Откройте файл в браузере — сервер не нужен.
+    </p>
+  </header>
+
+  <main>
+    <section class="stack">
+      <div class="panel stack">
+        <h2>1. Настройка курса</h2>
+        <div>
+          <label for="topic">Тема курса</label>
+          <input id="topic" type="text" value="SQL для бизнес-аналитиков" />
+        </div>
+        <div class="modules-editor">
+          <label for="modulesText">Модули (по одному на строку: id | название | цель)</label>
+          <textarea id="modulesText">m1 | Соединение таблиц | Сопоставлять заказы и клиентов
+m2 | Агрегации | Считать суммы и средние по группам
+m3 | Оконные функции | Строить накопительные метрики
+m4 | Оптимизация запросов | Ускорять типовые отчёты</textarea>
+          <p class="hint">Счётчики completed / included ведёт инструмент. max_followups по умолчанию 2.</p>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnStart">Начать / сбросить интервью</button>
+          <button type="button" class="ghost" id="btnCopyPrompt">Копировать SYSTEM_PROMPT</button>
+        </div>
+        <details class="prompt-box">
+          <summary>Системный промпт (можно править перед копированием)</summary>
+          <textarea id="systemPrompt"></textarea>
+        </details>
+      </div>
+
+      <div class="panel stack">
+        <h2>2. Ваш ответ</h2>
+        <div class="status-bar" id="statusBar"></div>
+        <div class="question-box">
+          <div class="label">Вопрос ассистента (если был)</div>
+          <div class="text" id="assistantQuestion">Сформируйте первый ответ по текущему модулю и скопируйте JSON в чат.</div>
+        </div>
+        <div>
+          <label>Глубина (depth)</label>
+          <div class="row" id="depthChips"></div>
+        </div>
+        <div>
+          <label>Уровень знаний (knowledge_level)</label>
+          <div class="row" id="knowledgeChips"></div>
+        </div>
+        <div>
+          <label for="comment">Комментарий</label>
+          <textarea id="comment" class="answer-comment" placeholder="Свободный текст ответа..."></textarea>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnBuild">Собрать JSON для модели</button>
+          <button type="button" id="btnCopyOut">Копировать JSON</button>
+          <button type="button" class="ghost" id="btnClearAnswer">Очистить поля ответа</button>
+        </div>
+        <div>
+          <label for="outbound">JSON → в чат ИИ</label>
+          <textarea id="outbound" readonly></textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="stack">
+      <div class="panel stack">
+        <h2>3. Ответ модели</h2>
+        <div>
+          <label for="inbound">Вставьте JSON-ответ модели</label>
+          <textarea id="inbound" placeholder='{"signals":{...},"action":"ask","follow_up_question":"..."}'></textarea>
+        </div>
+        <div class="row">
+          <button type="button" class="primary" id="btnParse">Разобрать и применить</button>
+          <button type="button" class="ghost" id="btnClearIn">Очистить</button>
+        </div>
+        <div class="error" id="parseError"></div>
+        <div class="signals" id="signalsView"></div>
+        <div class="row" style="margin-top:0.25rem">
+          <span class="hint">action:</span>
+          <strong id="actionView">—</strong>
+        </div>
+        <div class="question-box">
+          <div class="label">follow_up_question</div>
+          <div class="text" id="followUpView">—</div>
+        </div>
+      </div>
+
+      <div class="panel stack">
+        <h2>Журнал ходов</h2>
+        <div class="log" id="log">Интервью ещё не начато.</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const DEFAULT_PROMPT = `Ты — методист и интервьюер, который помогает человеку подобрать структуру курса под его цели и исходный уровень. Сейчас ты уточняешь только один текущий модуль. Общая предварительная структура скрыта от ученика.
+
+Ты получаешь JSON с темой topic, текущим модулем module, ответом answer, предыдущими сообщениями по текущему модулю history:[{role,content}] и состоянием интервью: module_count, completed_modules, included_modules, followup_count, max_followups. completed_modules и included_modules учитывают только уже завершённые модули, без текущего. answer содержит depth (skip/brief/standard/deep/null), knowledge_level (junior/middle/senior/null) и comment. Поля выбора могут отсутствовать. history может быть пустым.
+
+Определи четыре признака: нужен ли модуль (necessity), желаемая глубина (depth), заявленный пользователем уровень знаний (knowledge), конкретная практическая задача (application). Уровень является самооценкой, а не результатом проверки знаний. Не оценивай пользователя числом и не вычисляй процент уверенности.
+
+Для каждого признака укажи status: confirmed — явно определён, missing — сведений недостаточно, conflict — ответы несовместимы, not_applicable — признак не требуется при явном исключении модуля. value для necessity: include/exclude/null; depth: brief/standard/deep/null; knowledge: junior/middle/senior/null; application: concrete/null. missing/conflict/not_applicable имеют value null. В evidence помещай дословные цитаты из пользовательского comment или content сообщений history с role=user. Для значения, полученного непосредственно из выбранной кнопки depth или knowledge_level, допустим пустой evidence. Не придумывай цитаты.
+
+Выбранная глубина кроме skip означает желание включить модуль. skip означает желание исключить модуль. Если комментарий этому противоречит, сначала уточни решение. Для исключённого модуля depth, knowledge и application имеют status not_applicable, value null, evidence []. Не выводи уровень знаний из глубины. «Для работы» без конкретной задачи не подтверждает application.
+
+Если необходимости, глубины или уровня не хватает либо есть противоречие, задай один короткий вопрос о самом важном пробеле. Не задавай дополнительный вопрос только ради application. Не задавай больше min(max_followups, 2) дополнительных вопросов на модуль. При исчерпании лимита закончи уточнение текущего модуля, сохранив missing/conflict, а не угадывая ответы.
+
+action ask — нужен дополнительный ответ; next_module — текущий модуль завершён и остались другие; finish — текущий последний и хотя бы один модуль явно включён; revise_goal — текущий последний, но ни один модуль явно не включён. При revise_goal попроси уточнить цель курса одним вопросом. При ask или revise_goal follow_up_question содержит один вопрос на русском длиной до 300 символов. При next_module или finish он равен null. Счётчики прогресса и количество уверенно определённых признаков — разные вещи.
+
+Верни только JSON без Markdown, вступления и объяснения рассуждений. Все четыре признака обязательны. Формат:
+
+{"signals":{"necessity":{"status":"confirmed","value":"include","evidence":[]},"depth":{"status":"confirmed","value":"standard","evidence":[]},"knowledge":{"status":"missing","value":null,"evidence":[]},"application":{"status":"missing","value":null,"evidence":[]}},"action":"ask","follow_up_question":"Каков ваш текущий опыт в теме этого раздела?"}`;
+
+    const DEPTH_OPTIONS = [
+      { value: null, label: "не выбрано" },
+      { value: "skip", label: "skip" },
+      { value: "brief", label: "brief" },
+      { value: "standard", label: "standard" },
+      { value: "deep", label: "deep" },
+    ];
+
+    const KNOWLEDGE_OPTIONS = [
+      { value: null, label: "не выбрано" },
+      { value: "junior", label: "junior" },
+      { value: "middle", label: "middle" },
+      { value: "senior", label: "senior" },
+    ];
+
+    const state = {
+      topic: "",
+      modules: [],
+      moduleIndex: 0,
+      completedModules: 0,
+      includedModules: 0,
+      followupCount: 0,
+      maxFollowups: 2,
+      history: [],
+      lastAssistantQuestion: null,
+      finished: false,
+      lastOutboundAnswer: null,
+      depth: null,
+      knowledge: null,
+      log: [],
+    };
+
+    const els = {
+      topic: document.getElementById("topic"),
+      modulesText: document.getElementById("modulesText"),
+      systemPrompt: document.getElementById("systemPrompt"),
+      statusBar: document.getElementById("statusBar"),
+      assistantQuestion: document.getElementById("assistantQuestion"),
+      depthChips: document.getElementById("depthChips"),
+      knowledgeChips: document.getElementById("knowledgeChips"),
+      comment: document.getElementById("comment"),
+      outbound: document.getElementById("outbound"),
+      inbound: document.getElementById("inbound"),
+      parseError: document.getElementById("parseError"),
+      signalsView: document.getElementById("signalsView"),
+      actionView: document.getElementById("actionView"),
+      followUpView: document.getElementById("followUpView"),
+      log: document.getElementById("log"),
+      toast: document.getElementById("toast"),
+    };
+
+    function toast(message) {
+      els.toast.textContent = message;
+      els.toast.classList.add("show");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => els.toast.classList.remove("show"), 1800);
+    }
+
+    async function copyText(text) {
+      await navigator.clipboard.writeText(text);
+      toast("Скопировано");
+    }
+
+    function parseModules(text) {
+      return text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line, index) => {
+          const parts = line.split("|").map((p) => p.trim());
+          return {
+            id: parts[0] || `m${index + 1}`,
+            title: parts[1] || parts[0] || `Модуль ${index + 1}`,
+            goal: parts[2] || "",
+          };
+        });
+    }
+
+    function currentModule() {
+      return state.modules[state.moduleIndex] || null;
+    }
+
+    function renderChips(container, options, selected, onSelect) {
+      container.innerHTML = "";
+      options.forEach((opt) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip" + (selected === opt.value ? " active" : "");
+        btn.textContent = opt.label;
+        btn.addEventListener("click", () => onSelect(opt.value));
+        container.appendChild(btn);
+      });
+    }
+
+    function renderStatus() {
+      const mod = currentModule();
+      const cells = [
+        ["Модуль", mod ? `${state.moduleIndex + 1}/${state.modules.length}: ${mod.title}` : "—"],
+        ["completed", String(state.completedModules)],
+        ["included", String(state.includedModules)],
+        ["followups", `${state.followupCount}/${state.maxFollowups}`],
+        ["history", String(state.history.length)],
+        ["статус", state.finished ? "завершено" : "в процессе"],
+      ];
+      els.statusBar.innerHTML = cells
+        .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${escapeHtml(v)}</div></div>`)
+        .join("");
+      els.assistantQuestion.textContent =
+        state.lastAssistantQuestion ||
+        (state.finished
+          ? "Интервью завершено. Можно начать заново."
+          : "Сформируйте первый ответ по текущему модулю и скопируйте JSON в чат.");
+    }
+
+    function renderAnswerControls() {
+      renderChips(els.depthChips, DEPTH_OPTIONS, state.depth, (value) => {
+        state.depth = value;
+        renderAnswerControls();
+      });
+      renderChips(els.knowledgeChips, KNOWLEDGE_OPTIONS, state.knowledge, (value) => {
+        state.knowledge = value;
+        renderAnswerControls();
+      });
+    }
+
+    function renderLog() {
+      els.log.textContent = state.log.length ? state.log.join("\n") : "Пока пусто.";
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function buildAnswer() {
+      const answer = {};
+      if (state.depth !== null) answer.depth = state.depth;
+      if (state.knowledge !== null) answer.knowledge_level = state.knowledge;
+      answer.comment = els.comment.value.trim();
+      return answer;
+    }
+
+    function buildOutboundPayload() {
+      const mod = currentModule();
+      if (!mod) throw new Error("Нет текущего модуля. Нажмите «Начать / сбросить».");
+      if (state.finished) throw new Error("Интервью уже завершено. Начните заново.");
+      return {
+        topic: state.topic,
+        module: { id: mod.id, title: mod.title, goal: mod.goal },
+        module_count: state.modules.length,
+        completed_modules: state.completedModules,
+        included_modules: state.includedModules,
+        followup_count: state.followupCount,
+        max_followups: state.maxFollowups,
+        history: state.history,
+        answer: buildAnswer(),
+      };
+    }
+
+    function buildOutbound() {
+      try {
+        const payload = buildOutboundPayload();
+        state.lastOutboundAnswer = { ...payload.answer };
+        els.outbound.value = JSON.stringify(payload, null, 2);
+        state.log.push(`[out] module=${payload.module.id} followup=${payload.followup_count}`);
+        renderLog();
+        toast("JSON собран");
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+
+    function showError(message) {
+      els.parseError.textContent = message;
+      els.parseError.classList.add("show");
+    }
+
+    function clearError() {
+      els.parseError.textContent = "";
+      els.parseError.classList.remove("show");
+    }
+
+    function extractJson(text) {
+      const trimmed = text.trim();
+      if (!trimmed) throw new Error("Пустой ответ модели.");
+      try {
+        return JSON.parse(trimmed);
+      } catch (_) {
+        const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fenced) return JSON.parse(fenced[1].trim());
+        const start = trimmed.indexOf("{");
+        const end = trimmed.lastIndexOf("}");
+        if (start >= 0 && end > start) return JSON.parse(trimmed.slice(start, end + 1));
+        throw new Error("Не удалось найти JSON в ответе.");
+      }
+    }
+
+    function renderSignals(signals) {
+      if (!signals) {
+        els.signalsView.innerHTML = "";
+        return;
+      }
+      const names = ["necessity", "depth", "knowledge", "application"];
+      els.signalsView.innerHTML = names
+        .map((name) => {
+          const sig = signals[name] || {};
+          const status = sig.status || "—";
+          const value = sig.value === null || sig.value === undefined ? "null" : String(sig.value);
+          const evidence = Array.isArray(sig.evidence) ? sig.evidence.join(" | ") : "";
+          return `<div class="signal">
+            <div class="name">${name}</div>
+            <div><span class="badge ${escapeHtml(status)}">${escapeHtml(status)}</span>${escapeHtml(value)}</div>
+            <div class="hint">${escapeHtml(evidence || "evidence: []")}</div>
+          </div>`;
+        })
+        .join("");
+    }
+
+    function clearAnswerFields() {
+      state.depth = null;
+      state.knowledge = null;
+      els.comment.value = "";
+      renderAnswerControls();
+    }
+
+    function applyModelOutput(output) {
+      const action = output.action;
+      const question = output.follow_up_question;
+      const signals = output.signals || {};
+      const sentAnswer = state.lastOutboundAnswer || buildAnswer();
+      const userText = typeof sentAnswer.comment === "string" ? sentAnswer.comment : "";
+
+      els.actionView.textContent = action;
+      els.followUpView.textContent = question == null ? "null" : String(question);
+      renderSignals(signals);
+
+      if (action === "ask" || action === "revise_goal") {
+        if (!question || typeof question !== "string") {
+          throw new Error(`Для action=${action} нужен follow_up_question.`);
+        }
+        state.history = [
+          ...state.history,
+          { role: "user", content: userText },
+          { role: "assistant", content: question },
+        ];
+        if (action === "ask") state.followupCount += 1;
+        state.lastAssistantQuestion = question;
+        state.log.push(`[in] ${action}: ${question}`);
+        clearAnswerFields();
+        els.outbound.value = "";
+        state.lastOutboundAnswer = null;
+        if (action === "revise_goal") {
+          state.finished = true;
+          state.log.push("[done] revise_goal");
+        }
+      } else if (action === "next_module" || action === "finish") {
+        const necessity = signals.necessity || {};
+        const included =
+          necessity.status === "confirmed" && necessity.value === "include";
+        state.completedModules += 1;
+        if (included) state.includedModules += 1;
+        state.history = [];
+        state.followupCount = 0;
+        state.lastAssistantQuestion = null;
+        state.lastOutboundAnswer = null;
+        clearAnswerFields();
+        els.outbound.value = "";
+
+        if (action === "next_module") {
+          state.moduleIndex += 1;
+          if (state.moduleIndex >= state.modules.length) {
+            throw new Error("Модель вернула next_module, но модули закончились.");
+          }
+          state.log.push(`[in] next_module → ${currentModule().id} (included+=${included ? 1 : 0})`);
+        } else {
+          state.finished = true;
+          state.log.push(`[in] finish (included+=${included ? 1 : 0})`);
+        }
+      } else {
+        throw new Error(`Неизвестный action: ${action}`);
+      }
+
+      renderStatus();
+      renderLog();
+      toast("Ответ применён");
+    }
+
+    function parseInbound() {
+      clearError();
+      try {
+        const output = extractJson(els.inbound.value);
+        if (!output || typeof output !== "object") throw new Error("Корень ответа должен быть объектом.");
+        if (!output.signals || !output.action) throw new Error("Нужны поля signals и action.");
+        applyModelOutput(output);
+      } catch (error) {
+        showError(error.message || String(error));
+      }
+    }
+
+    function startInterview() {
+      clearError();
+      const modules = parseModules(els.modulesText.value);
+      if (!modules.length) {
+        showError("Добавьте хотя бы один модуль.");
+        return;
+      }
+      state.topic = els.topic.value.trim() || "Курс";
+      state.modules = modules;
+      state.moduleIndex = 0;
+      state.completedModules = 0;
+      state.includedModules = 0;
+      state.followupCount = 0;
+      state.history = [];
+      state.lastAssistantQuestion = null;
+      state.finished = false;
+      state.lastOutboundAnswer = null;
+      state.log = [`Старт: «${state.topic}», модулей: ${modules.length}`];
+      clearAnswerFields();
+      els.outbound.value = "";
+      els.inbound.value = "";
+      els.actionView.textContent = "—";
+      els.followUpView.textContent = "—";
+      renderSignals(null);
+      renderStatus();
+      renderLog();
+      toast("Интервью сброшено");
+    }
+
+    document.getElementById("btnStart").addEventListener("click", startInterview);
+    document.getElementById("btnBuild").addEventListener("click", buildOutbound);
+    document.getElementById("btnCopyOut").addEventListener("click", async () => {
+      if (!els.outbound.value) buildOutbound();
+      if (els.outbound.value) await copyText(els.outbound.value);
+    });
+    document.getElementById("btnCopyPrompt").addEventListener("click", async () => {
+      await copyText(els.systemPrompt.value);
+    });
+    document.getElementById("btnClearAnswer").addEventListener("click", clearAnswerFields);
+    document.getElementById("btnParse").addEventListener("click", parseInbound);
+    document.getElementById("btnClearIn").addEventListener("click", () => {
+      els.inbound.value = "";
+      clearError();
+    });
+
+    els.systemPrompt.value = DEFAULT_PROMPT;
+    renderAnswerControls();
+    startInterview();
+  </script>
+</body>
+</html>

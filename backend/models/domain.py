@@ -2,7 +2,7 @@
 Доменные модели данных (Pydantic)
 Адаптировано из TGBotCreateCourse проекта
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Union
 from enum import Enum
 from datetime import datetime
@@ -13,6 +13,50 @@ class DifficultyLevel(str, Enum):
     JUNIOR = "junior"
     MIDDLE = "middle"
     SENIOR = "senior"
+
+
+class CourseBriefDepth(str, Enum):
+    """Желаемая глубина проработки раздела в интервью."""
+    SKIP = "skip"
+    BRIEF = "brief"
+    STANDARD = "standard"
+    DEEP = "deep"
+
+
+class CourseBriefStatus(str, Enum):
+    """Статус сессии уточнения структуры курса."""
+    QUESTIONING = "questioning"
+    COMPLETED = "completed"
+
+
+class CourseBriefQuestionKind(str, Enum):
+    """Тип вопроса, который сейчас ожидает интервью."""
+
+    MODULE = "module"
+    FOLLOW_UP = "follow_up"
+    REVISE_GOAL = "revise_goal"
+    ADD_MODULE = "add_module"
+    SPLIT_MODULE = "split_module"
+    LESSON_SCOPE = "lesson_scope"
+    LESSON_EXTRAS = "lesson_extras"
+
+
+class CourseBriefAnswerControls(str, Enum):
+    """Какие элементы ответа показать в UI для текущего вопроса."""
+
+    MODULE_GATE = "module_gate"
+    KNOWLEDGE = "knowledge"
+    DEPTH = "depth"
+    TEXT = "text"
+
+
+class CourseBriefModulePhase(str, Enum):
+    """Фаза уточнения внутри одного модуля черновика."""
+
+    MODULE_GATE = "module_gate"
+    LESSON_SCOPE = "lesson_scope"
+    LESSON_EXTRAS = "lesson_extras"
+    DONE = "done"
 
 
 class LessonFormat(str, Enum):
@@ -143,6 +187,102 @@ class Course(BaseModel):
 
 
 # ============================================================================
+# МОДЕЛИ ДЛЯ ИНТЕРВЬЮ ПО СТРУКТУРЕ КУРСА
+# ============================================================================
+
+class CourseBriefStartRequest(BaseModel):
+    """Запрос на запуск интервью по теме будущего курса."""
+    topic: str = Field(..., min_length=3, max_length=200, description="Тема будущего курса")
+
+
+class CourseBriefAnswerRequest(BaseModel):
+    """Структурированный ответ пользователя на вопрос о разделе."""
+    expected_revision: int = Field(
+        ...,
+        ge=1,
+        description="Версия сессии, для которой сформирован ответ",
+    )
+    depth: Optional[CourseBriefDepth] = Field(
+        default=None,
+        description="Нужная глубина проработки раздела; для текстового уточнения не обязательна",
+    )
+    knowledge_level: Optional[DifficultyLevel] = Field(
+        default=None,
+        description="Текущий уровень пользователя в этом разделе",
+    )
+    comment: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Необязательное уточнение пользователя",
+    )
+
+    @model_validator(mode="after")
+    def requires_substantive_answer(self):
+        """Не принимает пустую отправку, но разрешает текстовый follow-up."""
+        if self.depth is None and self.knowledge_level is None and not (self.comment or "").strip():
+            raise ValueError(
+                "Укажите глубину, уровень знаний или добавьте текстовое уточнение."
+            )
+        return self
+
+
+class CourseBriefQuestion(BaseModel):
+    """Текущий вопрос интервью, не раскрывающий полный черновик структуры."""
+    number: int = Field(..., ge=1, description="Номер вопроса")
+    total: int = Field(..., ge=1, description="Всего вопросов в интервью")
+    text: str = Field(..., description="Текст вопроса")
+    kind: CourseBriefQuestionKind = Field(
+        default=CourseBriefQuestionKind.MODULE,
+        description="Вопрос по модулю, уточнение, новая цель или запрос нового раздела",
+    )
+    answer_controls: CourseBriefAnswerControls = Field(
+        default=CourseBriefAnswerControls.MODULE_GATE,
+        description="Какой UI ответа показать: gate-кнопки, шкала уровня/глубины или только текст",
+    )
+
+
+class CourseBriefChatMessage(BaseModel):
+    """Сообщение истории интервью для восстановления UI."""
+
+    role: str = Field(..., description="user или assistant")
+    content: str = Field(..., description="Текст сообщения")
+    sequence: int = Field(..., ge=1, description="Порядок сообщения в сессии")
+
+
+class CourseBriefProgress(BaseModel):
+    """Детерминированный прогресс интервью по разделам курса."""
+    completed_questions: int = Field(..., ge=0)
+    total_questions: int = Field(..., ge=0)
+    percentage: int = Field(..., ge=0, le=100)
+    remaining_questions: int = Field(..., ge=0)
+
+
+class CourseBriefConfidence(BaseModel):
+    """Детерминированная полнота собранных требований, не оценка знаний человека."""
+
+    current_module_percentage: int = Field(..., ge=0, le=100)
+    structure_percentage: int = Field(..., ge=0, le=100)
+    current_module_status: str = Field(..., min_length=1, max_length=32)
+    confirmed_signals: int = Field(..., ge=0, le=5)
+    total_signals: int = Field(default=5, ge=5, le=5)
+
+
+class CourseBriefResponse(BaseModel):
+    """Состояние сессии интервью, которое безопасно отдавать клиенту."""
+    session_id: str
+    topic: str
+    status: CourseBriefStatus
+    revision: int = Field(default=1, ge=1)
+    progress: CourseBriefProgress
+    confidence: CourseBriefConfidence
+    question: Optional[CourseBriefQuestion] = None
+    final_course: Optional[Course] = None
+    messages: List["CourseBriefChatMessage"] = Field(
+        default_factory=list,
+        description="История диалога для восстановления чата без дублей",
+    )
+
+# ============================================================================
 # МОДЕЛИ ДЛЯ ЛЕКЦИЙ И СЛАЙДОВ
 # ============================================================================
 
@@ -231,4 +371,3 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     status_code: int = 500
-

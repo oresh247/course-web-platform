@@ -1,0 +1,186 @@
+[
+  {
+    "id": "T1",
+    "input": {
+      "topic": "SQL для бизнес-аналитика",
+      "module": {"id": "m1", "title": "Соединение таблиц", "goal": "Сопоставлять заказы и клиентов"},
+      "module_count": 3,
+      "completed_modules": 0,
+      "included_modules": 0,
+      "followup_count": 0,
+      "max_followups": 2,
+      "history": [],
+      "answer": {"comment": "Раздел нужен. Хочу соединять заказы и клиентов для отчёта о продажах."}
+    },
+    "output": {
+      "signals": {
+        "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен."]},
+        "depth": {"status": "missing", "value": null, "evidence": []},
+        "knowledge": {"status": "missing", "value": null, "evidence": []},
+        "application": {"status": "confirmed", "value": "concrete", "evidence": ["Хочу соединять заказы и клиентов для отчёта о продажах."]}
+      },
+      "action": "ask",
+      "follow_up_question": "Какой объём по этому разделу вам нужен: краткий обзор, стандартная проработка или углублённое изучение?"
+    }
+  },
+  {
+    "id": "T2",
+    "input": {
+      "topic": "SQL для бизнес-аналитика",
+      "module": {"id": "m1", "title": "Соединение таблиц", "goal": "Сопоставлять заказы и клиентов"},
+      "module_count": 3,
+      "completed_modules": 0,
+      "included_modules": 0,
+      "followup_count": 1,
+      "max_followups": 2,
+      "history": [
+        {"role": "user", "content": "Раздел нужен. Хочу соединять заказы и клиентов для отчёта о продажах."},
+        {"role": "assistant", "content": "Какой объём по этому разделу вам нужен: краткий обзор, стандартная проработка или углублённое изучение?"}
+      ],
+      "answer": {"comment": "Нужен стандартный объём с теорией и практикой."}
+    },
+    "output": {
+      "signals": {
+        "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен."]},
+        "depth": {"status": "confirmed", "value": "standard", "evidence": ["Нужен стандартный объём с теорией и практикой."]},
+        "knowledge": {"status": "missing", "value": null, "evidence": []},
+        "application": {"status": "confirmed", "value": "concrete", "evidence": ["Хочу соединять заказы и клиентов для отчёта о продажах."]}
+      },
+      "action": "ask",
+      "follow_up_question": "Какой у вас текущий уровень знаний о JOIN и соединении таблиц?"
+    }
+  },
+  {
+    "id": "T3",
+    "input": {
+      "topic": "SQL для бизнес-аналитика",
+      "module": {"id": "m1", "title": "Соединение таблиц", "goal": "Сопоставлять заказы и клиентов"},
+      "module_count": 3,
+      "completed_modules": 0,
+      "included_modules": 0,
+      "followup_count": 2,
+      "max_followups": 2,
+      "history": [
+        {"role": "user", "content": "Раздел нужен. Хочу соединять заказы и клиентов для отчёта о продажах."},
+        {"role": "assistant", "content": "Какой объём по этому разделу вам нужен: краткий обзор, стандартная проработка или углублённое изучение?"},
+        {"role": "user", "content": "Нужен стандартный объём с теорией и практикой."},
+        {"role": "assistant", "content": "Какой у вас текущий уровень знаний о JOIN и соединении таблиц?"}
+      ],
+      "answer": {"comment": "С JOIN пока не знаком, я начинающий."}
+    },
+    "output": {
+      "signals": {
+        "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен."]},
+        "depth": {"status": "confirmed", "value": "standard", "evidence": ["Нужен стандартный объём с теорией и практикой."]},
+        "knowledge": {"status": "confirmed", "value": "junior", "evidence": ["С JOIN пока не знаком, я начинающий."]},
+        "application": {"status": "confirmed", "value": "concrete", "evidence": ["Хочу соединять заказы и клиентов для отчёта о продажах."]}
+      },
+      "action": "next_module",
+      "follow_up_question": null
+    }
+  },
+  {
+    "id": "T4",
+    "input": {
+      "topic": "SQL для бизнес-аналитика",
+      "module": {"id": "m2", "title": "Администрирование", "goal": "Настраивать сервер базы данных"},
+      "module_count": 3,
+      "completed_modules": 1,
+      "included_modules": 1,
+      "followup_count": 0,
+      "max_followups": 2,
+      "history": [],
+      "answer": {"depth": "skip", "comment": "Администрирование исключить: сервером занимается другая команда."}
+    },
+    "output": {
+      "signals": {
+        "necessity": {"status": "confirmed", "value": "exclude", "evidence": ["Администрирование исключить: сервером занимается другая команда."]},
+        "depth": {"status": "not_applicable", "value": null, "evidence": []},
+        "knowledge": {"status": "not_applicable", "value": null, "evidence": []},
+        "application": {"status": "not_applicable", "value": null, "evidence": []}
+      },
+      "action": "next_module",
+      "follow_up_question": null
+    }
+  },
+  {
+    "id": "T5",
+    "input": {
+      "topic": "SQL для бизнес-аналитика",
+      "module": {"id": "m3", "title": "Оконные функции", "goal": "Рассчитывать показатели по группам строк"},
+      "module_count": 3,
+      "completed_modules": 2,
+      "included_modules": 1,
+      "followup_count": 0,
+      "max_followups": 2,
+      "history": [],
+      "answer": {"depth": "standard", "comment": "Раздел нужен в стандартном объёме. Пока не могу определить свой уровень."}
+    },
+    "output": {
+      "signals": {
+        "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен в стандартном объёме."]},
+        "depth": {"status": "confirmed", "value": "standard", "evidence": []},
+        "knowledge": {"status": "missing", "value": null, "evidence": []},
+        "application": {"status": "missing", "value": null, "evidence": []}
+      },
+      "action": "ask",
+      "follow_up_question": "Как вы оцениваете свой текущий уровень работы с оконными функциями?"
+    }
+  },
+  {
+    "id": "T6",
+    "input": {
+      "topic": "SQL для бизнес-аналитика",
+      "module": {"id": "m3", "title": "Оконные функции", "goal": "Рассчитывать показатели по группам строк"},
+      "module_count": 3,
+      "completed_modules": 2,
+      "included_modules": 1,
+      "followup_count": 1,
+      "max_followups": 2,
+      "history": [
+        {"role": "user", "content": "Раздел нужен в стандартном объёме. Пока не могу определить свой уровень."},
+        {"role": "assistant", "content": "Как вы оцениваете свой текущий уровень работы с оконными функциями?"}
+      ],
+      "answer": {"comment": "Не могу оценить свой опыт."}
+    },
+    "output": {
+      "signals": {
+        "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен в стандартном объёме."]},
+        "depth": {"status": "confirmed", "value": "standard", "evidence": []},
+        "knowledge": {"status": "missing", "value": null, "evidence": []},
+        "application": {"status": "missing", "value": null, "evidence": []}
+      },
+      "action": "ask",
+      "follow_up_question": "Можете назвать свой уровень как junior, middle или senior, даже приблизительно?"
+    }
+  },
+  {
+    "id": "T7",
+    "input": {
+      "topic": "SQL для бизнес-аналитика",
+      "module": {"id": "m3", "title": "Оконные функции", "goal": "Рассчитывать показатели по группам строк"},
+      "module_count": 3,
+      "completed_modules": 2,
+      "included_modules": 1,
+      "followup_count": 2,
+      "max_followups": 2,
+      "history": [
+        {"role": "user", "content": "Раздел нужен в стандартном объёме. Пока не могу определить свой уровень."},
+        {"role": "assistant", "content": "Как вы оцениваете свой текущий уровень работы с оконными функциями?"},
+        {"role": "user", "content": "Не могу оценить свой опыт."},
+        {"role": "assistant", "content": "Можете назвать свой уровень как junior, middle или senior, даже приблизительно?"}
+      ],
+      "answer": {"comment": "Пока не могу ответить точнее."}
+    },
+    "output": {
+      "signals": {
+        "necessity": {"status": "confirmed", "value": "include", "evidence": ["Раздел нужен в стандартном объёме."]},
+        "depth": {"status": "confirmed", "value": "standard", "evidence": []},
+        "knowledge": {"status": "missing", "value": null, "evidence": []},
+        "application": {"status": "missing", "value": null, "evidence": []}
+      },
+      "action": "finish",
+      "follow_up_question": null
+    }
+  }
+]

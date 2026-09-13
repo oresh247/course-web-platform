@@ -1,8 +1,8 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import { Layout, ConfigProvider, theme as antdTheme, App as AntdApp } from 'antd'
 import AppHeader from './components/Header'
 import HomePage from './pages/HomePage'
-import CreateCoursePage from './pages/CreateCoursePage'
+import CourseGeneratorPage from './pages/CourseGeneratorPage'
 import CourseViewPage from './pages/CourseViewPage'
 import CourseContentEditorPage from './pages/CourseContentEditorPage'
 import CoursesListPage from './pages/CoursesListPage'
@@ -89,20 +89,27 @@ const theme = {
 }
 
 function App() {
+  const location = useLocation()
+  const isFullscreenGenerator = location.pathname === '/create' || location.pathname.startsWith('/create/')
+  const routes = (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/create" element={<CourseGeneratorPage />} />
+      <Route path="/courses" element={<CoursesListPage />} />
+      <Route path="/courses/:id" element={<CourseViewPage />} />
+      <Route path="/courses/:id/content" element={<CourseContentEditorPage />} />
+      <Route path="/video-test" element={<VideoTestPage />} />
+    </Routes>
+  )
+
   return (
     <ConfigProvider theme={theme}>
       <AntdApp>
+        {isFullscreenGenerator ? routes : (
         <Layout style={{ minHeight: '100vh', background: '#0a0a0a' }}>
           <AppHeader />
           <Content style={{ padding: '24px 50px', marginTop: 70, background: '#0a0a0a' }}>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/create" element={<CreateCoursePage />} />
-              <Route path="/courses" element={<CoursesListPage />} />
-              <Route path="/courses/:id" element={<CourseViewPage />} />
-              <Route path="/courses/:id/content" element={<CourseContentEditorPage />} />
-              <Route path="/video-test" element={<VideoTestPage />} />
-            </Routes>
+            {routes}
           </Content>
           <Footer style={{ 
             textAlign: 'center',
@@ -116,10 +123,10 @@ function App() {
             </div>
           </Footer>
         </Layout>
+        )}
       </AntdApp>
     </ConfigProvider>
   )
 }
 
 export default App
-

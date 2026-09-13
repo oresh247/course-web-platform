@@ -5,7 +5,7 @@
 import logging
 
 from ..services.video_generation_service import VideoGenerationService
-from ..services.heygen_service import HeyGenService
+from ..services.mock_heygen_service import AdaptiveHeyGenService
 from ..services.video_cache_service import VideoCacheService
 
 
@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 # Сервис координации генерации видео (асинхронные действия, оркестрация)
 video_service = VideoGenerationService()
 
-# Принудительно используем реальный HeyGen клиент (для диагностики сети)
-heygen_service = HeyGenService()
+# Без HEYGEN_API_KEY AdaptiveHeyGenService использует мок, Course Brief от этого не зависит.
+heygen_service = AdaptiveHeyGenService()
 
 # Служба кэширования видео-результатов
 video_cache_service = VideoCacheService()

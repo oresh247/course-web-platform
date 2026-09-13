@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Генератор курсов</title>
+  <style>
+:root {--bg:      oklch(98% 0.005 250);--surface: oklch(100% 0 0);--fg:      oklch(22% 0.02 240);--muted:   oklch(50% 0.018 240);--border:  oklch(90% 0.008 240);--accent:  oklch(58% 0.16 145);--font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;--font-body:    -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;--font-mono:    'JetBrains Mono', 'IBM Plex Mono', ui-monospace, Menlo, monospace;--success: oklch(58% 0.14 145);--warn: oklch(70% 0.13 78);--danger: oklch(58% 0.16 28);--surface-2: color-mix(in oklch, var(--bg) 76%, var(--surface));--surface-3: color-mix(in oklch, var(--fg) 4%, var(--surface));--line-soft: color-mix(in oklch, var(--border) 72%, transparent);--fg-soft: color-mix(in oklch, var(--fg) 76%, var(--muted));--accent-weak: color-mix(in oklch, var(--accent) 13%, var(--surface));--success-weak: color-mix(in oklch, var(--success) 12%, var(--surface));--warn-weak: color-mix(in oklch, var(--warn) 18%, var(--surface));--danger-weak: color-mix(in oklch, var(--danger) 12%, var(--surface));--shadow: 0 18px 60px color-mix(in oklch, var(--fg) 10%, transparent);}
+    * {box-sizing: border-box;}
+    html {min-width: 320px;background: var(--bg);color: var(--fg);font-family: var(--font-body);line-height: 1.5;}
+    body {margin: 0;min-height: 100vh;background:
+        linear-gradient(180deg, color-mix(in oklch, var(--bg) 92%, var(--surface)) 0%, var(--bg) 42%), var(--bg);}
+    button, input, textarea {font: inherit;}
+    button {min-height: 44px;border: 0;cursor: pointer;}
+    button:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {outline: 3px solid color-mix(in oklch, var(--accent) 45%, transparent);outline-offset: 3px;}
+    .shell {display: grid;grid-template-rows: auto minmax(0, 1fr);min-height: 100vh;}
+    .topbar {display: flex;align-items: center;justify-content: space-between;gap: 18px;padding: 18px clamp(18px, 3vw, 34px);border-bottom: 1px solid var(--border);background: color-mix(in oklch, var(--surface) 92%, transparent);backdrop-filter: blur(18px);position: relative;z-index: 20;}
+    .brand {display: flex;align-items: center;gap: 12px;min-width: 0;}
+    .brand-mark {width: 34px;height: 34px;border-radius: 7px;display: grid;place-items: center;color: var(--surface);background: var(--fg);box-shadow: inset 0 -8px 16px color-mix(in oklch, var(--surface) 12%, transparent);flex: 0 0 auto;}
+    .brand-mark svg, .icon svg {width: 18px;height: 18px;stroke-width: 1.8;}
+    .brand-copy {min-width: 0;}
+    .brand-title {margin: 0;font-family: var(--font-display);font-size: 17px;font-weight: 600;line-height: 1.15;letter-spacing: 0;white-space: nowrap;overflow: hidden;text-overflow: ellipsis;}
+    .brand-subtitle {margin: 2px 0 0;color: var(--muted);font-size: 13px;letter-spacing: 0.01em;white-space: nowrap;overflow: hidden;text-overflow: ellipsis;}
+    .topbar-actions {display: flex;align-items: center;gap: 10px;flex: 0 0 auto;}
+    .ghost-button, .icon-button, .secondary-button {border: 1px solid var(--border);background: var(--surface);color: var(--fg);border-radius: 7px;transition: background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;}
+    .ghost-button, .secondary-button {padding: 0 14px;font-size: 14px;font-weight: 550;letter-spacing: 0.02em;}
+    .icon-button {width: 44px;display: grid;place-items: center;}
+    .ghost-button:hover, .icon-button:hover, .secondary-button:hover {background: color-mix(in oklch, var(--fg) 5%, var(--surface));border-color: color-mix(in oklch, var(--fg) 18%, var(--border));transform: translateY(-1px);}
+    .primary-button {display: inline-flex;align-items: center;justify-content: center;gap: 9px;min-height: 46px;padding: 0 18px;border-radius: 7px;background: var(--accent);color: var(--surface);font-size: 14px;font-weight: 600;letter-spacing: 0.02em;box-shadow: 0 12px 28px color-mix(in oklch, var(--accent) 26%, transparent);transition: background .16s ease, transform .16s ease, box-shadow .16s ease;}
+    .primary-button:hover {background: color-mix(in oklch, var(--accent) 86%, var(--fg));color: var(--surface);transform: translateY(-1px);box-shadow: 0 16px 34px color-mix(in oklch, var(--accent) 30%, transparent);}
+    .primary-button:disabled {background: color-mix(in oklch, var(--fg) 10%, var(--surface));color: var(--muted);box-shadow: none;cursor: not-allowed;transform: none;}
+    .app {display: grid;grid-template-columns: minmax(236px, 292px) minmax(420px, 1fr) minmax(320px, 390px);gap: 1px;min-height: 0;background: var(--border);}
+    .sidebar, .chat, .inspector {min-width: 0;background: var(--bg);}
+    .sidebar {display: grid;grid-template-rows: auto 1fr auto;padding: 20px 14px;gap: 18px;}
+    .sidebar-head {display: flex;justify-content: space-between;align-items: center;gap: 12px;padding: 0 6px;}
+    .section-title {margin: 0;font-size: 12px;font-weight: 600;letter-spacing: 0.08em;text-transform: uppercase;color: var(--muted);}
+    .project-list {display: grid;gap: 8px;align-content: start;overflow: auto;padding: 0 4px 6px 0;}
+    .project-card {width: 100%;display: grid;grid-template-columns: 1fr auto;gap: 9px 10px;align-items: start;padding: 13px 12px;min-height: 86px;text-align: left;border: 1px solid transparent;border-radius: 8px;background: transparent;color: var(--fg);transition: background .16s ease, border-color .16s ease, box-shadow .16s ease;}
+    .project-card:hover {background: color-mix(in oklch, var(--fg) 4%, var(--surface));border-color: var(--border);}
+    .project-card.is-active {background: var(--surface);border-color: var(--border);box-shadow: 0 8px 22px color-mix(in oklch, var(--fg) 7%, transparent);}
+    .project-name {margin: 0;font-size: 14px;font-weight: 600;letter-spacing: 0;line-height: 1.25;}
+    .project-meta {margin: 5px 0 0;color: var(--muted);font-size: 12px;letter-spacing: 0.01em;line-height: 1.35;}
+    .mini-meter {width: 46px;height: 7px;border-radius: 999px;background: color-mix(in oklch, var(--fg) 9%, var(--surface));overflow: hidden;margin-top: 3px;}
+    .mini-meter span {display: block;height: 100%;width: var(--value);background: color-mix(in oklch, var(--fg) 72%, var(--surface));border-radius: inherit;}
+    .project-status {grid-column: 1 / -1;display: inline-flex;align-items: center;width: max-content;max-width: 100%;min-height: 24px;padding: 3px 8px;border-radius: 999px;border: 1px solid var(--border);color: var(--fg-soft);background: var(--surface-2);font-size: 12px;line-height: 1.3;letter-spacing: 0.01em;white-space: normal;}
+    .sidebar-foot {padding: 14px 8px 0;border-top: 1px solid var(--border);}
+    .quota {display: grid;gap: 8px;padding: 12px;border: 1px solid var(--border);border-radius: 8px;background: var(--surface);}
+    .quota-row {display: flex;justify-content: space-between;gap: 12px;font-size: 13px;color: var(--muted);letter-spacing: 0;}
+    .quota-row strong {color: var(--fg);font-weight: 600;}
+    .chat {display: grid;grid-template-rows: auto minmax(0, 1fr) auto;min-height: 0;}
+    .chat-head {padding: 22px clamp(18px, 3vw, 32px) 18px;border-bottom: 1px solid var(--border);background: var(--surface);}
+    .chat-kicker {display: flex;align-items: center;gap: 10px;margin: 0 0 8px;color: var(--muted);font-family: var(--font-mono);font-size: 12px;letter-spacing: 0.02em;}
+    .live-dot {width: 8px;height: 8px;border-radius: 999px;background: var(--success);box-shadow: 0 0 0 4px var(--success-weak);flex: 0 0 auto;}
+    .chat-title-row {display: flex;justify-content: space-between;align-items: end;gap: 18px;}
+    .chat-title {margin: 0;font-family: var(--font-display);font-size: clamp(30px, 4.2vw, 54px);line-height: 1.04;letter-spacing: -0.02em;max-width: 820px;}
+    .chat-summary {margin: 12px 0 0;max-width: 62ch;color: var(--muted);font-size: 16px;line-height: 1.55;letter-spacing: 0;}
+    .session-id {flex: 0 0 auto;display: grid;gap: 4px;text-align: right;color: var(--muted);font-family: var(--font-mono);font-size: 12px;letter-spacing: 0.01em;}
+    .session-id strong {color: var(--fg);font-weight: 600;}
+    .messages {overflow: auto;padding: 24px clamp(18px, 3vw, 32px);display: grid;align-content: start;gap: 16px;}
+    .message {display: grid;grid-template-columns: 34px minmax(0, 1fr);gap: 12px;max-width: 760px;}
+    .message.user {grid-template-columns: minmax(0, 1fr) 34px;justify-self: end;}
+    .avatar {width: 34px;height: 34px;border-radius: 7px;display: grid;place-items: center;background: var(--surface);border: 1px solid var(--border);color: var(--fg);font-size: 12px;font-weight: 600;letter-spacing: 0.02em;line-height: 1;}
+    .bubble {padding: 14px 16px;border-radius: 8px;border: 1px solid var(--border);background: var(--surface);box-shadow: 0 8px 24px color-mix(in oklch, var(--fg) 5%, transparent);}
+    .message.user .bubble {background: var(--surface-3);box-shadow: none;}
+    .bubble p {margin: 0;color: var(--fg);font-size: 15px;line-height: 1.55;letter-spacing: 0;max-width: 66ch;}
+    .bubble p + p {margin-top: 10px;}
+    .question-options {display: flex;flex-wrap: wrap;gap: 8px;margin-top: 12px;}
+    .option-chip {min-height: 34px;padding: 6px 10px;border: 1px solid var(--border);border-radius: 999px;background: var(--surface);color: var(--fg);font-size: 13px;font-weight: 550;letter-spacing: 0.01em;transition: background .16s ease, border-color .16s ease;}
+    .option-chip:hover {background: color-mix(in oklch, var(--fg) 5%, var(--surface));border-color: color-mix(in oklch, var(--fg) 16%, var(--border));}
+    .agent-step {margin-top: 12px;display: grid;grid-template-columns: auto 1fr;gap: 10px;align-items: start;padding: 12px;border-radius: 7px;background: var(--surface-2);border: 1px solid var(--line-soft);}
+    .step-index {width: 24px;height: 24px;border-radius: 6px;display: grid;place-items: center;background: var(--fg);color: var(--surface);font-family: var(--font-mono);font-size: 11px;line-height: 1;}
+    .agent-step strong {display: block;margin: 1px 0 2px;font-size: 13px;font-weight: 600;letter-spacing: 0;}
+    .agent-step span {display: block;color: var(--muted);font-size: 13px;line-height: 1.45;letter-spacing: 0;}
+    .composer {border-top: 1px solid var(--border);padding: 16px clamp(18px, 3vw, 32px) 22px;background: var(--surface);}
+    .composer-box {display: grid;grid-template-columns: minmax(0, 1fr) auto;gap: 12px;align-items: end;padding: 10px;border: 1px solid color-mix(in oklch, var(--fg) 16%, var(--border));border-radius: 10px;background: var(--surface);box-shadow: var(--shadow);}
+    .composer-field {display: grid;gap: 7px;min-width: 0;}
+    .composer-label {margin: 0 2px;color: var(--muted);font-size: 12px;font-weight: 550;letter-spacing: 0.02em;}
+    .composer-input {width: 100%;min-height: 52px;resize: none;border: 0;outline: 0;padding: 5px 2px;background: transparent;color: var(--fg);font-size: 16px;line-height: 1.45;letter-spacing: 0;}
+    .composer-input::placeholder {color: color-mix(in oklch, var(--muted) 76%, var(--surface));}
+    .inspector {display: grid;grid-template-rows: auto minmax(0, 1fr);min-height: 0;}
+    .inspector-head {padding: 20px 20px 17px;border-bottom: 1px solid var(--border);background: var(--surface);}
+    .inspector-title {margin: 0;font-size: 18px;font-weight: 600;line-height: 1.22;letter-spacing: -0.01em;}
+    .inspector-copy {margin: 6px 0 0;color: var(--muted);font-size: 13px;line-height: 1.45;letter-spacing: 0;}
+    .inspector-body {overflow: auto;padding: 18px 20px 24px;display: grid;gap: 16px;align-content: start;}
+    .panel {border: 1px solid var(--border);border-radius: 8px;background: var(--surface);overflow: hidden;}
+    .panel-inner {padding: 16px;}
+    .confidence-top {display: flex;justify-content: space-between;gap: 14px;align-items: start;}
+    .confidence-value {margin: 0;font-family: var(--font-mono);font-size: 34px;line-height: 1;letter-spacing: -0.02em;font-weight: 600;}
+    .confidence-caption {margin: 4px 0 0;color: var(--muted);font-size: 13px;letter-spacing: 0;}
+    .threshold-pill {display: inline-flex;align-items: center;justify-content: center;min-height: 28px;padding: 4px 9px;border-radius: 999px;border: 1px solid var(--border);background: var(--success-weak);color: color-mix(in oklch, var(--success) 70%, var(--fg));font-size: 12px;font-weight: 600;line-height: 1.2;letter-spacing: 0.01em;white-space: normal;}
+    .meter {position: relative;height: 14px;margin-top: 18px;border-radius: 999px;background: color-mix(in oklch, var(--fg) 9%, var(--surface));overflow: hidden;}
+    .meter-fill {width: var(--value);height: 100%;border-radius: inherit;background: var(--accent);transition: width .2s ease;}
+    .threshold-line {position: absolute;top: -4px;bottom: -4px;left: 72%;width: 2px;background: var(--fg);border-radius: 999px;}
+    .meter-labels {display: flex;justify-content: space-between;gap: 12px;margin-top: 9px;color: var(--muted);font-family: var(--font-mono);font-size: 11px;letter-spacing: 0.01em;}
+    .signal-list {display: grid;gap: 9px;margin: 16px 0 0;padding: 0;list-style: none;}
+    .signal {display: grid;grid-template-columns: auto 1fr;gap: 9px;align-items: start;color: var(--fg);font-size: 13px;line-height: 1.45;letter-spacing: 0;}
+    .signal::before {content: "";width: 7px;height: 7px;border-radius: 999px;margin-top: 6px;background: color-mix(in oklch, var(--fg) 56%, var(--surface));}
+    .outline-head {display: flex;justify-content: space-between;gap: 12px;align-items: center;padding: 14px 16px;border-bottom: 1px solid var(--border);background: var(--surface-2);}
+    .outline-head h3 {margin: 0;font-size: 14px;font-weight: 600;line-height: 1.3;letter-spacing: 0;}
+    .outline-state {display: inline-flex;align-items: center;min-height: 26px;padding: 3px 8px;border-radius: 999px;background: var(--warn-weak);color: color-mix(in oklch, var(--warn) 58%, var(--fg));font-size: 12px;font-weight: 600;line-height: 1.25;letter-spacing: 0.01em;white-space: nowrap;}
+    .outline {display: grid;gap: 0;margin: 0;padding: 0;list-style: none;}
+    .outline-item {display: grid;grid-template-columns: auto minmax(0, 1fr);gap: 11px;padding: 14px 16px;border-bottom: 1px solid var(--line-soft);}
+    .outline-item:last-child {border-bottom: 0;}
+    .module-number {width: 28px;height: 28px;display: grid;place-items: center;border-radius: 6px;background: var(--surface-3);color: var(--fg);font-family: var(--font-mono);font-size: 12px;font-weight: 600;}
+    .module-title {margin: 0;font-size: 13px;font-weight: 600;line-height: 1.35;letter-spacing: 0;}
+    .module-detail {margin: 4px 0 0;color: var(--muted);font-size: 12px;line-height: 1.45;letter-spacing: 0;}
+    .action-panel {display: grid;gap: 10px;}
+    .readiness-note {margin: 0;color: var(--muted);font-size: 13px;line-height: 1.45;letter-spacing: 0;}
+    .details-grid {display: grid;grid-template-columns: repeat(2, minmax(0, 1fr));gap: 10px;}
+    .detail-tile {min-height: 82px;padding: 12px;border: 1px solid var(--border);border-radius: 8px;background: var(--surface);}
+    .detail-label {margin: 0 0 8px;color: var(--muted);font-size: 11px;font-weight: 600;line-height: 1.25;letter-spacing: 0.08em;text-transform: uppercase;}
+    .detail-value {margin: 0;color: var(--fg);font-size: 13px;font-weight: 600;line-height: 1.35;letter-spacing: 0;}
+    .mobile-projects {display: none;padding: 13px 18px;border-bottom: 1px solid var(--border);background: var(--surface);}
+    .project-select {width: 100%;min-height: 44px;border: 1px solid var(--border);border-radius: 7px;background: var(--surface);color: var(--fg);padding: 0 12px;font-size: 14px;font-weight: 550;}
+    @media (max-width: 1180px) {.app {grid-template-columns: minmax(214px, 260px) minmax(0, 1fr);}
+      .inspector {grid-column: 1 / -1;grid-template-columns: minmax(0, .72fr) minmax(280px, .28fr);grid-template-rows: auto;border-top: 1px solid var(--border);}
+      .inspector-head {border-bottom: 0;border-right: 1px solid var(--border);}
+      .inspector-body {grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);overflow: visible;}
+      .action-panel {grid-column: 1 / -1;}}
+    @media (max-width: 840px) {.topbar {position: static;}
+      .topbar-actions .ghost-button {display: none;}
+      .app {display: block;background: var(--bg);}
+      .sidebar {display: none;}
+      .mobile-projects {display: block;}
+      .chat {min-height: auto;}
+      .chat-title-row {display: grid;}
+      .session-id {text-align: left;}
+      .messages {max-height: none;}
+      .message, .message.user {grid-template-columns: 30px minmax(0, 1fr);justify-self: stretch;}
+      .message.user .avatar {grid-column: 1;grid-row: 1;}
+      .message.user .bubble {grid-column: 2;grid-row: 1;}
+      .composer-box {grid-template-columns: 1fr;}
+      .primary-button {width: 100%;}
+      .inspector {display: block;border-top: 1px solid var(--border);}
+      .inspector-head {border-right: 0;border-bottom: 1px solid var(--border);}
+      .inspector-body {overflow: visible;}}
+    @media (max-width: 560px) {.brand-subtitle {display: none;}
+      .topbar {padding: 14px;}
+      .chat-head, .messages, .composer {padding-left: 14px;padding-right: 14px;}
+      .chat-title {font-size: 34px;}
+      .details-grid {grid-template-columns: 1fr;}
+      .inspector-body {padding: 14px;}}
+  </style>
+</head>
+<body>
+  <div class="shell" data-od-id="course-generator-page">
+    <header class="topbar" data-od-id="top-navigation" style="margin-left: 292px; width: calc(100% - 292px);">
+      <div class="brand" data-od-id="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M4 7.5h16M6.5 12h11M9 16.5h6"></path>
+            <path d="M5 4h14a1 1 0 0 1 1 1v14l-4-3H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"></path>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <p class="brand-title">AI-продукты с нуля</p>
+          <p class="brand-subtitle">проект курса · структура доступна</p>
+        </div>
+      </div>
+      <nav class="topbar-actions" aria-label="Действия страницы">
+      </nav>
+    </header>
+
+    <main class="app" data-od-id="main-product-workspace">
+      <aside class="sidebar" data-od-id="course-projects-sidebar" style="margin-top: -81px; padding-top: 20px; min-height: calc(100% + 81px);">
+        <div class="sidebar-head">
+          <h2 class="section-title" data-od-id="projects-heading">Проекты курсов</h2>
+          <button class="icon-button" type="button" aria-label="Новый проект" data-od-id="new-project-button">
+            <span class="icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
+            </span>
+          </button>
+        </div>
+
+        <div class="project-list" data-od-id="project-list" role="list">
+          <button class="project-card is-active" type="button" data-project="ai-product" data-od-id="project-card-ai-product">
+            <span>
+              <span class="project-name">AI-продукты с нуля</span>
+            </span>
+            <span class="mini-meter" aria-label="уверенность 78%" style="--value: 78%"><span></span></span>
+            <span class="project-status" aria-label="Готов к структуре" title="Готов к структуре">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5"></path>
+              </svg>
+            </span>
+          </button>
+
+          <button class="project-card" type="button" data-project="data-analytics" data-od-id="project-card-data-analytics">
+            <span>
+              <span class="project-name">Аналитика для маркетологов</span>
+              <span class="project-meta">нужно уточнить практику</span>
+            </span>
+            <span class="mini-meter" aria-label="уверенность 54%" style="--value: 54%"><span></span></span>
+          </button>
+
+          <button class="project-card" type="button" data-project="public-speaking" data-od-id="project-card-public-speaking">
+            <span>
+              <span class="project-name">Публичные выступления</span>
+              <span class="project-meta">новый бриф · 3 вопроса</span>
+            </span>
+            <span class="mini-meter" aria-label="уверенность 31%" style="--value: 31%"><span></span></span>
+          </button>
+        </div>
+
+        <div class="sidebar-foot" data-od-id="workspace-quota">
+          <div class="quota">
+            <div class="quota-row">
+              <span>Черновики</span>
+              <strong>6</strong>
+            </div>
+            <div class="quota-row">
+              <span>Курсы к сборке</span>
+              <strong>2</strong>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="chat" data-od-id="course-brief-chat">
+        <div class="mobile-projects" data-od-id="mobile-project-switcher">
+          <label class="composer-label" for="mobile-project-select">Проект курса</label>
+          <select class="project-select" id="mobile-project-select" data-od-id="project-select">
+            <option value="ai-product">AI-продукты с нуля</option>
+            <option value="data-analytics">Аналитика для маркетологов</option>
+            <option value="public-speaking">Публичные выступления</option>
+          </select>
+        </div>
+
+        <header class="chat-head" data-od-id="chat-header" hidden>
+          <p class="chat-kicker" data-od-id="chat-status"><span class="live-dot" aria-hidden="true"></span>агент уточняет цель обучения</p>
+          <div class="chat-title-row">
+            <div>
+              <h1 class="chat-title" data-od-id="main-heading">Чему вы хотите научиться?</h1>
+              <p class="chat-summary" data-od-id="main-subheading">Ответьте как в обычном диалоге. Агент соберет аудиторию, уровень, формат занятий и критерии результата, а затем предложит структуру курса.</p>
+            </div>
+            <p class="session-id" data-od-id="session-meta">
+              <span>сессия</span>
+              <strong>CRS-0428</strong>
+            </p>
+          </div>
+        </header>
+
+        <div class="messages" data-od-id="chat-messages" aria-live="polite" style="padding-top: 0; grid-template-rows: auto auto auto minmax(0, 1fr) auto; align-content: stretch; min-height: calc(100vh - 78px);">
+          <article class="message agent" data-od-id="message-agent-opening">
+            <div class="avatar" aria-hidden="true" style="visibility: hidden;">AI</div>
+            <div class="bubble" style="grid-column: 1 / -1; margin-right: 56px;">
+              <p>Начнем с главного. Какой навык или тему вы хотите превратить в курс, и для кого он должен быть полезен?</p>
+              <div class="question-options" data-od-id="quick-topic-options">
+                <button class="option-chip" type="button">Запуск AI-продукта</button>
+                <button class="option-chip" type="button">Маркетинговая аналитика</button>
+                <button class="option-chip" type="button">Навык для команды</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="message user" data-od-id="message-user-goal">
+            <div class="bubble" style="grid-column: 1 / -1; justify-self: end; margin-left: 56px;">
+              <p>Хочу курс для продактов, которые запускают AI-фичи и не понимают, как проверять гипотезы до разработки.</p>
+            </div>
+          </article>
+
+          <article class="message agent" data-od-id="message-agent-plan">
+            <div class="bubble" style="grid-column: 1 / -1; margin-right: 56px; padding-top: 0;">
+              <p>Понял направление. Чтобы структура не получилась слишком общей, уточню три вещи: стартовый уровень, формат практики и какой результат должен быть у слушателя после курса.</p>
+              <div class="agent-step" data-od-id="agent-next-step-audience">
+                <span class="step-index">01</span>
+                <span>
+                  <strong>Уточнить аудиторию</strong>
+                  <span>Продакты в стартапах, корпоративные PM или фаундеры с ролью продукта.</span>
+                </span>
+              </div>
+              <div class="agent-step" data-od-id="agent-next-step-result">
+                <span class="step-index">02</span>
+                <span>
+                  <strong>Зафиксировать результат</strong>
+                  <span>Например, готовый discovery-план и критерии решения о разработке фичи.</span>
+                </span>
+              </div>
+            </div>
+          </article>
+
+          <form class="composer" data-od-id="chat-composer" style="grid-row: 5; border-top: 0; padding: 0; background: transparent; position: sticky; bottom: 0; z-index: 10;">
+            <div class="composer-box">
+              <label class="composer-field" for="course-topic-input">
+                <textarea class="composer-input" id="course-topic-input" rows="2" data-od-id="course-topic-input" placeholder="Чему вы хотите научиться? Например: делать лендинги, запускать AI-продукты, управлять командой..."></textarea>
+              </label>
+              <button class="secondary-button" type="submit" data-od-id="send-answer-button">Ответить</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <aside class="inspector" data-od-id="course-readiness-panel">
+        <div class="inspector-body">
+          <section class="panel" data-od-id="confidence-panel" style="position: absolute; top: 13px; right: 20px; z-index: 31; width: clamp(300px, calc(28vw - 20px), 360px); box-shadow: none;">
+            <div class="panel-inner" style="display: grid; grid-template-columns: auto minmax(120px, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px;">
+              <div>
+                <p class="confidence-value" data-od-id="confidence-value" style="font-size: 20px; line-height: 1;">78%</p>
+                <p class="confidence-caption" data-od-id="confidence-label" style="margin-top: 2px; font-size: 11px; line-height: 1.2;">уверенность</p>
+              </div>
+              <div class="meter" data-od-id="confidence-meter" aria-label="Уверенность агента 78 процентов, порог 72 процента" style="height: 8px; margin-top: 0;">
+                <div class="meter-fill" style="--value: 78%"></div>
+                <div class="threshold-line" aria-hidden="true"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" data-od-id="course-outline-panel">
+            <div class="outline-head">
+              <h3 data-od-id="outline-heading">Черновик структуры</h3>
+              <span class="outline-state" data-od-id="outline-status">предпросмотр</span>
+            </div>
+            <ol class="outline" data-od-id="course-outline-list">
+              <li class="outline-item" data-od-id="module-brief">
+                <span class="module-number">01</span>
+                <span>
+                  <p class="module-title">Формулировка учебной цели</p>
+                  <p class="module-detail">Связать тему, аудиторию и проверяемый результат курса.</p>
+                </span>
+              </li>
+              <li class="outline-item" data-od-id="module-discovery">
+                <span class="module-number">02</span>
+                <span>
+                  <p class="module-title">Проверка потребности</p>
+                  <p class="module-detail">Интервью, сигналы спроса и решение, чему учить в первую очередь.</p>
+                </span>
+              </li>
+              <li class="outline-item" data-od-id="module-practice">
+                <span class="module-number">03</span>
+                <span>
+                  <p class="module-title">Практические задания</p>
+                  <p class="module-detail">Сценарии, шаблоны и критерии оценки прогресса слушателя.</p>
+                </span>
+              </li>
+              <li class="outline-item" data-od-id="module-launch">
+                <span class="module-number">04</span>
+                <span>
+                  <p class="module-title">Сборка и запуск курса</p>
+                  <p class="module-detail">План уроков, проверка полноты и подготовка к публикации.</p>
+                </span>
+              </li>
+            </ol>
+          </section>
+
+          <section class="action-panel" data-od-id="generation-actions">
+            <button class="primary-button" type="button" data-od-id="generate-outline-button">
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M5 4h9l5 5v11H5V4Z"></path>
+                  <path d="M14 4v5h5M8 13h8M8 17h6"></path>
+                </svg>
+              </span>
+              Сгенерировать структуру
+            </button>
+          </section>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const projects = {
+      "ai-product": {
+        confidence: 78,
+        status: "готов к структуре",
+        title: "Чему вы хотите научиться?",
+        subtitle: "Ответьте как в обычном диалоге. Агент соберет аудиторию, уровень, формат занятий и критерии результата, а затем предложит структуру курса.",
+        details: ["продакты AI-фич", "4 модуля с практикой", "средний", "итоговое задание"]
+      },
+      "data-analytics": {
+        confidence: 54,
+        status: "сбор контекста",
+        title: "Какой рабочий навык должен дать курс?",
+        subtitle: "Агент уже понял аудиторию, но просит уточнить уровень данных, инструменты и типовые задачи слушателей.",
+        details: ["маркетологи", "6 коротких уроков", "начальный", "примеры отчетов"]
+      },
+      "public-speaking": {
+        confidence: 31,
+        status: "ранняя гипотеза",
+        title: "Для какой ситуации нужен курс?",
+        subtitle: "Пока есть только тема. Нужно понять аудиторию, частоту практики и критерий уверенного выступления.",
+        details: ["руководители", "не выбран", "разный", "цель курса"]
+      }
+    };
+
+    const storageKey = "courseForgeSelectedProject";
+    const cards = Array.from(document.querySelectorAll(".project-card"));
+    const select = document.querySelector("#mobile-project-select");
+    const confidenceValue = document.querySelector("[data-od-id='confidence-value']");
+    const meterFill = document.querySelector(".meter-fill");
+    const meter = document.querySelector("[data-od-id='confidence-meter']");
+    const thresholdPill = document.querySelector("[data-od-id='threshold-pill']");
+    const generateButton = document.querySelector("[data-od-id='generate-outline-button']");
+    const chatTitle = document.querySelector("[data-od-id='main-heading']");
+    const chatSummary = document.querySelector("[data-od-id='main-subheading']");
+    const detailValues = Array.from(document.querySelectorAll(".detail-value"));
+    const composer = document.querySelector("[data-od-id='chat-composer']");
+    const input = document.querySelector("[data-od-id='course-topic-input']");
+    const messages = document.querySelector("[data-od-id='chat-messages']");
+
+    function applyProject(id) {
+      const project = projects[id] || projects["ai-product"];
+      cards.forEach((card) => card.classList.toggle("is-active", card.dataset.project === id));
+      select.value = id;
+      confidenceValue.textContent = `${project.confidence}%`;
+      meterFill.style.setProperty("--value", `${project.confidence}%`);
+      meter.setAttribute("aria-label", `Уверенность агента ${project.confidence} процентов, порог 72 процента`);
+      chatTitle.textContent = project.title;
+      chatSummary.textContent = project.subtitle;
+      detailValues.forEach((node, index) => {
+        node.textContent = project.details[index];
+      });
+      const ready = project.confidence >= 72;
+      generateButton.disabled = !ready;
+      if (thresholdPill) {
+        thresholdPill.textContent = ready ? "порог пройден" : "порог 72%";
+      }
+      localStorage.setItem(storageKey, id);
+    }
+
+    cards.forEach((card) => {
+      card.addEventListener("click", () => applyProject(card.dataset.project));
+    });
+
+    select.addEventListener("change", (event) => applyProject(event.target.value));
+
+    composer.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const value = input.value.trim();
+      if (!value) return;
+
+      const article = document.createElement("article");
+      article.className = "message user";
+      article.setAttribute("data-od-id", "message-user-draft");
+      article.innerHTML = `<div class="bubble"><p></p></div><div class="avatar" aria-hidden="true">ВЫ</div>`;
+      article.querySelector("p").textContent = value;
+      messages.insertBefore(article, composer);
+      input.value = "";
+      messages.scrollTop = messages.scrollHeight;
+    });
+
+    applyProject(localStorage.getItem(storageKey) || "ai-product");
+  </script>
+</body>
+</html>
