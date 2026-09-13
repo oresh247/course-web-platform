@@ -138,6 +138,20 @@ class RenderDatabase:
                     
                     # Миграции для совместимости со старыми схемами таблицы
                     try:
+                        cursor.execute(
+                            "ALTER TABLE course_briefs ADD COLUMN IF NOT EXISTS "
+                            "deferred_topics JSONB NOT NULL DEFAULT '[]'::jsonb"
+                        )
+                    except psycopg2.Error:
+                        pass
+                    try:
+                        cursor.execute(
+                            "ALTER TABLE course_briefs ADD COLUMN IF NOT EXISTS "
+                            "brief_meta JSONB NOT NULL DEFAULT '{}'::jsonb"
+                        )
+                    except psycopg2.Error:
+                        pass
+                    try:
                         cursor.execute("ALTER TABLE lesson_contents ADD COLUMN IF NOT EXISTS lesson_title VARCHAR(255)")
                     except psycopg2.Error:
                         pass
@@ -409,15 +423,27 @@ class RenderDatabase:
         preliminary_outline = brief_data.get("preliminary_outline", {})
         decisions = brief_data.get("decisions", {})
         final_outline = brief_data.get("final_outline")
+        deferred_topics = brief_data.get("deferred_topics", [])
+        brief_meta = brief_data.get("brief_meta", {})
 
         if preliminary_outline is None:
             preliminary_outline = {}
         if decisions is None:
             decisions = {}
+        if deferred_topics is None:
+            deferred_topics = []
+        if brief_meta is None:
+            brief_meta = {}
 
         current_question_index = brief_data.get("current_question_index")
         total_questions = brief_data.get("total_questions")
         revision = brief_data.get("revision")
+
+        def as_json(value: Any) -> Any:
+            return psycopg2.extras.Json(
+                value,
+                dumps=lambda item: json.dumps(item, ensure_ascii=False),
+            )
 
         try:
             with self._get_connection() as conn:
@@ -427,30 +453,21 @@ class RenderDatabase:
                         INSERT INTO course_briefs (
                             id, topic, status, preliminary_outline, decisions,
                             current_question_index, total_questions, final_outline,
-                            revision
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            revision, deferred_topics, brief_meta
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             brief_id,
                             brief_data.get("topic") or "",
                             brief_data.get("status") or "waiting_for_user",
-                            psycopg2.extras.Json(
-                                preliminary_outline,
-                                dumps=lambda value: json.dumps(value, ensure_ascii=False),
-                            ),
-                            psycopg2.extras.Json(
-                                decisions,
-                                dumps=lambda value: json.dumps(value, ensure_ascii=False),
-                            ),
+                            as_json(preliminary_outline),
+                            as_json(decisions),
                             0 if current_question_index is None else current_question_index,
                             0 if total_questions is None else total_questions,
-                            psycopg2.extras.Json(
-                                final_outline,
-                                dumps=lambda value: json.dumps(value, ensure_ascii=False),
-                            )
-                            if final_outline is not None
-                            else None,
+                            as_json(final_outline) if final_outline is not None else None,
                             0 if revision is None else revision,
+                            as_json(deferred_topics),
+                            as_json(brief_meta),
                         ),
                     )
                     conn.commit()
@@ -494,6 +511,8 @@ class RenderDatabase:
                         "total_questions": row["total_questions"],
                         "final_outline": decode_json(row["final_outline"], None),
                         "revision": row["revision"],
+                        "deferred_topics": decode_json(row.get("deferred_topics"), []),
+                        "brief_meta": decode_json(row.get("brief_meta"), {}),
                         "created_at": created_at.isoformat()
                         if hasattr(created_at, "isoformat")
                         else created_at,
@@ -521,8 +540,16 @@ class RenderDatabase:
             "total_questions",
             "final_outline",
             "revision",
+            "deferred_topics",
+            "brief_meta",
         )
-        json_fields = {"preliminary_outline", "decisions", "final_outline"}
+        json_fields = {
+            "preliminary_outline",
+            "decisions",
+            "final_outline",
+            "deferred_topics",
+            "brief_meta",
+        }
         set_clauses: List[str] = []
         params: List[Any] = []
 
@@ -532,7 +559,11 @@ class RenderDatabase:
 
             value = updates[field]
             if field in json_fields:
-                if value is None and field != "final_outline":
+                if value is None and field == "final_outline":
+                    pass
+                elif value is None and field == "deferred_topics":
+                    value = []
+                elif value is None:
                     value = {}
                 value = (
                     psycopg2.extras.Json(

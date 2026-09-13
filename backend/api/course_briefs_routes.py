@@ -25,7 +25,17 @@ router = APIRouter(prefix="/api/course-briefs", tags=["course-briefs"])
 async def start_course_brief(request: CourseBriefStartRequest):
     """Запускает интервью и возвращает первый вопрос без черновой структуры."""
     try:
-        return await run_in_threadpool(course_brief_service.start, request.topic)
+        return await run_in_threadpool(
+            course_brief_service.start,
+            request.topic,
+            course_goals=request.course_goals,
+            audience_level=(
+                request.audience_level.value if request.audience_level is not None else None
+            ),
+            module_count=request.module_count,
+            duration_weeks=request.duration_weeks,
+            hours_per_week=request.hours_per_week,
+        )
     except CourseBriefGenerationError as error:
         logger.error("Не удалось запустить интервью: %s", error)
         raise HTTPException(status_code=503, detail=str(error))

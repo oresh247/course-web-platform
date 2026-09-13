@@ -28,8 +28,9 @@ api.interceptors.response.use(
 )
 
 export const coursesApi = {
-  startCourseBrief: async (topic) => {
-    const response = await api.post('/api/course-briefs/', { topic })
+    startCourseBrief: async (payload) => {
+    const body = typeof payload === 'string' ? { topic: payload } : payload
+    const response = await api.post('/api/course-briefs/', body)
     return response.data
   },
 

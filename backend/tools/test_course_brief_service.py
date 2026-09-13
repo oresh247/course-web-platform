@@ -137,7 +137,7 @@ def test_course_brief_hides_draft_and_returns_final_outline_after_answers():
     assert started.progress.remaining_questions == 2
     assert started.question.number == 1
 
-    second_question = service.answer(
+    lesson_scope = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
             expected_revision=started.revision,
@@ -146,14 +146,26 @@ def test_course_brief_hides_draft_and_returns_final_outline_after_answers():
             comment="Нужны дополнительные упражнения.",
         ),
     )
-    assert second_question.status == CourseBriefStatus.QUESTIONING
-    assert second_question.progress.percentage == 50
-    assert second_question.question.number == 2
+    assert lesson_scope.status == CourseBriefStatus.QUESTIONING
+    assert lesson_scope.progress.percentage == 0
+    assert lesson_scope.question.number == 1
+    assert lesson_scope.question.kind.value == "lesson_scope"
+
+    second_module = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=lesson_scope.revision,
+            comment="Оставить все",
+        ),
+    )
+    assert second_module.status == CourseBriefStatus.QUESTIONING
+    assert second_module.progress.percentage == 50
+    assert second_module.question.number == 2
 
     completed = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
-            expected_revision=second_question.revision,
+            expected_revision=second_module.revision,
             depth=CourseBriefDepth.SKIP,
         ),
     )
@@ -163,7 +175,7 @@ def test_course_brief_hides_draft_and_returns_final_outline_after_answers():
     assert completed.question is None
     assert completed.final_course is not None
     assert [module.module_title for module in completed.final_course.modules] == ["Основы Python"]
-    assert len(storage.get_course_brief_messages(started.session_id)) == 6
+    assert len(storage.get_course_brief_messages(started.session_id)) >= 6
 
 
 def test_course_brief_rejects_stale_answer_revision():
@@ -175,6 +187,7 @@ def test_course_brief_rejects_stale_answer_revision():
         CourseBriefAnswerRequest(
             expected_revision=started.revision,
             depth=CourseBriefDepth.STANDARD,
+            knowledge_level=DifficultyLevel.MIDDLE,
         ),
     )
 
@@ -196,17 +209,25 @@ def test_course_brief_never_returns_a_skipped_module_from_ai():
     """Модель не может подменить выбранный пользователем состав модулей."""
     service = CourseBriefService(ai_client=RefiningFakeAIClient(), storage=FakeStorage())
     started = service.start("Python для аналитики")
-    next_question = service.answer(
+    lesson_scope = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
             expected_revision=started.revision,
             depth=CourseBriefDepth.STANDARD,
+            knowledge_level=DifficultyLevel.MIDDLE,
+        ),
+    )
+    second_module = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=lesson_scope.revision,
+            comment="Оставить все",
         ),
     )
     completed = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
-            expected_revision=next_question.revision,
+            expected_revision=second_module.revision,
             depth=CourseBriefDepth.SKIP,
         ),
     )

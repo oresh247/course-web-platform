@@ -25,12 +25,13 @@
 
 **Правила перехода**
 
-1. **Черновик верхнего уровня** (нода A) — скрытый outline с модулями; уроки в нём — seed, пользователю не показываются.
-2. На каждом модуле сначала **`module_gate`**. `scope` на этой фазе обычно `missing` и **не** держит цикл (`choose_server_action(..., critical_signals=MODULE_GATE_SIGNALS)`).
-3. Если модуль **`include`** → сервер входит в **`lesson_scope`**: при необходимости дособирает уроки (`_ensure_module_lesson_draft`, промпт `COURSE_BRIEF_LESSON_DRAFT_*`), задаёт вопрос со **списком уроков**.
-4. Ответ по составу → **`lesson_extras`**: «чего ещё не хватает»; темы из других модулей **не дублируются** (`find_duplicate_topics` → `deferred_topics` на сессии), уникальные добавляются как уроки.
-5. После extras модуль `finalized`, переход к следующему `module_gate` **или** финальный outline.
-6. Если модуль **`exclude` / skip`** — фазы уроков **пропускаются**, сразу next / finish / revise_goal.
+1. **Pre-brief (UI → API)** — до ноды A: тема, цель курса, уровень аудитории, желаемое число разделов. Параметры уходят в `POST /api/course-briefs/` и сохраняются в `brief_meta`.
+2. **Черновик верхнего уровня** (нода A) — скрытый outline с модулями по `brief_meta`; уроки в нём — seed, пользователю не показываются.
+3. На каждом модуле сначала **`module_gate`**. `scope` на этой фазе обычно `missing` и **не** держит цикл (`choose_server_action(..., critical_signals=MODULE_GATE_SIGNALS)`).
+4. Если модуль **`include`** → сервер входит в **`lesson_scope`**: при необходимости дособирает уроки (`_ensure_module_lesson_draft`), **серверно** убирает дубли с других модулей (`find_duplicate_topics` → `deferred_topics`), задаёт вопрос со **списком уроков**.
+5. Ответ по составу → **`lesson_extras`**: «чего ещё не хватает»; темы из других модулей **не дублируются** (тот же anti-dup), уникальные добавляются как уроки.
+6. После extras модуль `finalized`, переход к следующему `module_gate` **или** финальный outline.
+7. Если модуль **`exclude` / skip`** — фазы уроков **пропускаются**, сразу next / finish / revise_goal.
 
 Константы фаз: `PHASE_MODULE_GATE`, `PHASE_LESSON_SCOPE`, `PHASE_LESSON_EXTRAS`, `PHASE_DONE` в [`course_brief_interview.py`](../backend/services/course_brief_interview.py).  
 Лимиты: `MAX_MODULE_FOLLOWUPS = 4` (gate), `MAX_LESSON_PHASE_FOLLOWUPS = 2` (уточнение scope), `MAX_ADD_MODULE_FOLLOWUPS = 2`.
@@ -62,9 +63,9 @@
 
 `CourseBriefResponse.messages` — полная история из БД. UI при restore **пересобирает** чат из неё (не дописывает текущий вопрос повторно при HMR/reload).
 
-### `split_module` (контракт)
+### `split_module`
 
-В [`course_brief_interview.py`](../backend/services/course_brief_interview.py) есть `structure_request.kind=split_module`, `second_title`, `choose_split_module_action`, `split_module_question`. **Применение в сервисе (разрезание модуля в черновике) ещё не подключено** — пока работает `add_module`.
+На `module_gate` пользователь может попросить разделить текущий блок (`structure_request.kind=split_module`, поля `title` / `second_title`). Сервер через `choose_split_module_action` либо уточняет названия (`question.kind=split_module`), либо применяет `_split_current_module`: текущий модуль заменяется двумя, уроки делятся пополам (или seed), нумерация сдвигается, gate начинается заново с первого из двух блоков.
 
 ---
 
@@ -72,19 +73,22 @@
 
 ```mermaid
 flowchart TD
-  A[Старт: тема курса] --> B[Нода A: скрытый черновик модулей]
-  B --> C[Нода B: вопрос module_gate модуля 1]
+  PB[Pre-brief: тема / цель / уровень / объём] --> A[Нода A: скрытый черновик модулей]
+  A --> C[Нода B: вопрос module_gate модуля 1]
   C --> D{Цикл по модулям i = 1..N}
   D --> E[Нода C: ответ пользователя]
   E --> F{phase?}
   F -->|module_gate| G[Нода D: интервью-extractor LLM]
-  G --> H{Сервер: gate / add_module}
-  H -->|ask / add_module ask| I[Follow-up на модуле i]
+  G --> H{Сервер: gate / add_module / split_module}
+  H -->|ask / add_module ask / split ask| I[Follow-up на модуле i]
   I --> E
   H -->|insert module| J[Вставка раздела, N := N+1]
   J --> H
+  H -->|split module| JS[Два блока вместо текущего, N := N+1]
+  JS --> I
   H -->|exclude → next/finish/revise| K{next / finish / revise_goal}
-  H -->|include → lesson_scope| L[Черновик уроков + вопрос lesson_scope]
+  H -->|include → lesson_scope| L[L': уроки + серверный dedup]
+  L --> LS[Вопрос lesson_scope]
   F -->|lesson_scope| M[Сервер: scope / lesson_decisions]
   M --> N[Вопрос lesson_extras]
   F -->|lesson_extras| O[Extras + dedup / deferred]
@@ -92,8 +96,8 @@ flowchart TD
   P --> K
   K -->|next_module| Q[module_gate модуля i+1]
   Q --> D
-  K -->|revise_goal| R[Нода E: новая цель]
-  R --> B
+  K -->|revise_goal| R[Нода E: новая цель + brief_meta]
+  R --> A
   K -->|finish| S[Нода F: refinement LLM]
   S --> T[Готовая структура курса в UI]
 ```
@@ -117,12 +121,33 @@ flowchart TD
 
 ---
 
-## 3. Нода A — генерация скрытого черновика
+## 3. Pre-brief и нода A — генерация скрытого черновика
 
-**Когда:** `POST /api/course-briefs/` → [`CourseBriefService.start`](../backend/services/course_brief_service.py) → `generate_course_structure`.
+### Pre-brief (до API)
 
-**Вход сервиса:** тема пользователя; цели пока фиксированы:  
-`«Цели и глубина проработки уточняются в диалоге.»`; аудитория `middle`; **4 модуля**; 4 недели × 3 часа.
+UI [`CourseGeneratorPage.jsx`](../frontend/src/pages/CourseGeneratorPage.jsx) собирает локально:
+
+| Шаг | Поле | Куда уходит |
+|-----|------|-------------|
+| Тема | `topic` | `CourseBriefStartRequest.topic` |
+| Цель | текст | `course_goals` |
+| Уровень | junior/middle/senior | `audience_level` |
+| Объём | 2–8 разделов | `module_count` |
+
+Затем один вызов `POST /api/course-briefs/`. Параметры сохраняются в `brief_meta` (SQLite/Postgres) и переиспользуются при `revise_goal`.
+
+### Нода A
+
+**Когда:** [`CourseBriefService.start`](../backend/services/course_brief_service.py) → `generate_course_structure`.
+
+**Вход сервиса** (из `brief_meta`, с дефолтами):
+
+| Параметр | Дефолт |
+|----------|--------|
+| `course_goals` | «Цели и глубина проработки уточняются в диалоге.» |
+| `audience_level` | `middle` |
+| `module_count` | `4` |
+| `duration_weeks` × `hours_per_week` | `4` × `3` |
 
 ### System
 
@@ -139,15 +164,15 @@ flowchart TD
 | Плейсхолдер | Значение при старте интервью |
 |-------------|------------------------------|
 | `{topic}` | тема из UI |
-| `{course_goals}` | фиксированная строка про уточнение в диалоге |
-| `{audience}` | `middle` |
-| `{num_modules}` | `4` |
-| `{duration}` | `4 недель, 3 часов в неделю` |
+| `{course_goals}` | pre-brief или дефолт |
+| `{audience}` | pre-brief или `middle` |
+| `{num_modules}` | pre-brief или `4` |
+| `{duration}` | из `brief_meta` (по умолчанию `4 недель, 3 часов в неделю`) |
 
 **Выход:** JSON курса с `modules[]` → `preliminary_outline`, пользователю не отдаётся.  
 Уроки в черновике — **seed** для фазы `lesson_scope` (если список пуст при входе во включённый модуль — нода L' ниже).
 
-**Повтор:** при `revise_goal` ([`_restart_after_revised_goal`](../backend/services/course_brief_service.py)) — тот же промпт, `{course_goals}` = новая цель.
+**Повтор:** при `revise_goal` ([`_restart_after_revised_goal`](../backend/services/course_brief_service.py)) — тот же промпт; `{course_goals}` = новая цель, уровень/объём берутся из сохранённого `brief_meta`.
 
 ---
 
@@ -287,7 +312,7 @@ flowchart TD
 
 ### 6.1. Нода L' — черновик уроков модуля
 
-**Когда:** переход `module_gate` → `lesson_scope`, если у модуля **нет** уроков.
+**Когда:** переход `module_gate` → `lesson_scope`.
 
 Код: [`_ensure_module_lesson_draft`](../backend/services/course_brief_service.py).
 
@@ -299,6 +324,9 @@ flowchart TD
 Подстановки: `{topic}`, `{module_title}`, `{module_goal}`, `{depth}`, `{knowledge_level}`, `{current_lessons}`, `{other_topics}`.
 
 **Выход:** 3–6 уроков JSON. При сбое — шаблон «Основы / Практика». Если уроки уже есть в seed черновика — LLM **не** вызывается.
+
+**Серверный dedup (после L' / seed):**  
+[`find_duplicate_topics`](../backend/services/course_brief_interview.py) сравнивает названия уроков текущего модуля с `other_modules_topics`. Дубли **убираются** из черновика текущего блока и пишутся в `deferred_topics` (колонка сессии), чтобы спросить их на «родном» модуле. Симметрия с dedup на `lesson_extras`.
 
 ### 6.2. Фаза `lesson_scope`
 

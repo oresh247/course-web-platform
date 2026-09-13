@@ -113,7 +113,16 @@ class CourseDatabase:
                 CREATE INDEX IF NOT EXISTS idx_course_brief_messages_brief_sequence
                 ON course_brief_messages (brief_id, sequence)
             """)
-            
+
+            for column_sql in (
+                "ALTER TABLE course_briefs ADD COLUMN deferred_topics TEXT DEFAULT '[]'",
+                "ALTER TABLE course_briefs ADD COLUMN brief_meta TEXT DEFAULT '{}'",
+            ):
+                try:
+                    cursor.execute(column_sql)
+                except sqlite3.OperationalError:
+                    pass
+
             # Добавляем колонки для видео, если их еще нет (для существующих БД)
             try:
                 cursor.execute("ALTER TABLE lesson_contents ADD COLUMN video_id TEXT")
@@ -301,11 +310,17 @@ class CourseDatabase:
         preliminary_outline = brief_data.get("preliminary_outline", {})
         decisions = brief_data.get("decisions", {})
         final_outline = brief_data.get("final_outline")
+        deferred_topics = brief_data.get("deferred_topics", [])
+        brief_meta = brief_data.get("brief_meta", {})
 
         if preliminary_outline is None:
             preliminary_outline = {}
         if decisions is None:
             decisions = {}
+        if deferred_topics is None:
+            deferred_topics = []
+        if brief_meta is None:
+            brief_meta = {}
 
         current_question_index = brief_data.get("current_question_index")
         total_questions = brief_data.get("total_questions")
@@ -318,8 +333,8 @@ class CourseDatabase:
                 INSERT INTO course_briefs (
                     id, topic, status, preliminary_outline, decisions,
                     current_question_index, total_questions, final_outline,
-                    revision
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    revision, deferred_topics, brief_meta
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     brief_id,
@@ -333,6 +348,8 @@ class CourseDatabase:
                     if final_outline is not None
                     else None,
                     0 if revision is None else revision,
+                    json.dumps(deferred_topics, ensure_ascii=False),
+                    json.dumps(brief_meta, ensure_ascii=False),
                 ),
             )
             conn.commit()
@@ -351,6 +368,21 @@ class CourseDatabase:
             if not row:
                 return None
 
+            keys = set(row.keys())
+
+            def load_json_field(name: str, default: Any) -> Any:
+                if name not in keys:
+                    return default
+                raw = row[name]
+                if raw is None:
+                    return default
+                if isinstance(raw, (dict, list)):
+                    return raw
+                try:
+                    return json.loads(raw)
+                except (TypeError, json.JSONDecodeError):
+                    return default
+
             return {
                 "id": row["id"],
                 "topic": row["topic"],
@@ -363,6 +395,8 @@ class CourseDatabase:
                 if row["final_outline"] is not None
                 else None,
                 "revision": row["revision"],
+                "deferred_topics": load_json_field("deferred_topics", []),
+                "brief_meta": load_json_field("brief_meta", {}),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
@@ -383,8 +417,16 @@ class CourseDatabase:
             "total_questions",
             "final_outline",
             "revision",
+            "deferred_topics",
+            "brief_meta",
         )
-        json_fields = {"preliminary_outline", "decisions", "final_outline"}
+        json_fields = {
+            "preliminary_outline",
+            "decisions",
+            "final_outline",
+            "deferred_topics",
+            "brief_meta",
+        }
         set_clauses: List[str] = []
         params: List[Any] = []
 
@@ -394,12 +436,16 @@ class CourseDatabase:
 
             value = updates[field]
             if field in json_fields:
-                if value is None and field != "final_outline":
+                if value is None and field == "final_outline":
+                    pass
+                elif value is None and field == "deferred_topics":
+                    value = []
+                elif value is None:
                     value = {}
                 value = (
                     json.dumps(value, ensure_ascii=False)
-                    if value is not None
-                    else None
+                    if value is not None and not isinstance(value, str)
+                    else value
                 )
 
             set_clauses.append(f"{field} = ?")

@@ -191,8 +191,40 @@ class Course(BaseModel):
 # ============================================================================
 
 class CourseBriefStartRequest(BaseModel):
-    """Запрос на запуск интервью по теме будущего курса."""
+    """Запрос на запуск интервью по теме будущего курса.
+
+    Pre-brief поля задают параметры скрытого черновика (нода A).
+    """
+
     topic: str = Field(..., min_length=3, max_length=200, description="Тема будущего курса")
+    course_goals: Optional[str] = Field(
+        default=None,
+        min_length=3,
+        max_length=1000,
+        description="Цель курса для генерации черновика",
+    )
+    audience_level: Optional[DifficultyLevel] = Field(
+        default=None,
+        description="Целевой уровень аудитории курса",
+    )
+    module_count: Optional[int] = Field(
+        default=None,
+        ge=2,
+        le=12,
+        description="Желаемое число разделов в черновике",
+    )
+    duration_weeks: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=52,
+        description="Длительность курса в неделях",
+    )
+    hours_per_week: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=40,
+        description="Часов в неделю",
+    )
 
 
 class CourseBriefAnswerRequest(BaseModel):

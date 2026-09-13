@@ -46,36 +46,34 @@ class InterviewAI:
 
     def generate_course_structure(self, **kwargs):
         self.generate_calls.append(kwargs)
-        return {
-            "course_title": "Курс",
-            "course_goals": kwargs["course_goals"],
-            "target_audience": "middle",
-            "modules": [
+        module_count = int(kwargs.get("module_count") or 2)
+        modules = []
+        for index in range(1, module_count + 1):
+            modules.append(
                 {
-                    "module_number": 1,
-                    "module_title": "Первый раздел",
+                    "module_number": index,
+                    "module_title": f"Раздел {index}",
                     "module_goal": "Понять основу.",
                     "lessons": [
                         {
-                            "lesson_title": "Основы",
+                            "lesson_title": "Основы" if index == 1 else f"Практика {index}",
                             "lesson_goal": "Разобраться.",
                             "estimated_time_minutes": 30,
                         }
                     ],
-                },
-                {
-                    "module_number": 2,
-                    "module_title": "Второй раздел",
-                    "module_goal": "Применить основу.",
-                    "lessons": [
-                        {
-                            "lesson_title": "Практика",
-                            "lesson_goal": "Применить.",
-                            "estimated_time_minutes": 30,
-                        }
-                    ],
-                },
-            ],
+                }
+            )
+        # Для сценариев anti-dup оставляем узнаваемые названия первых двух.
+        if module_count >= 2:
+            modules[0]["module_title"] = "Первый раздел"
+            modules[0]["lessons"][0]["lesson_title"] = "Основы"
+            modules[1]["module_title"] = "Второй раздел"
+            modules[1]["lessons"][0]["lesson_title"] = "Практика"
+        return {
+            "course_title": "Курс",
+            "course_goals": kwargs["course_goals"],
+            "target_audience": kwargs.get("audience_level") or "middle",
+            "modules": modules,
         }
 
     def call_ai_json(self, **_kwargs):
@@ -146,7 +144,7 @@ def test_model_follow_up_keeps_module_and_persists_unique_messages():
     )
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=ai, storage=storage)
-    started = service.start("Тема")
+    started = service.start("Тема", module_count=2)
 
     follow_up = service.answer(
         started.session_id,
@@ -177,21 +175,12 @@ def test_model_follow_up_keeps_module_and_persists_unique_messages():
     assert decision["phase"] == "lesson_scope"
     assert decision["signals"]["knowledge"]["value"] == "junior"
 
-    lesson_extras = service.answer(
+    # «Оставить все» подтверждает состав и пропускает extras (если нет deferred).
+    next_module = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
             expected_revision=lesson_scope.revision,
             comment="Оставить все уроки.",
-        ),
-    )
-    assert lesson_extras.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS
-    assert storage.records[started.session_id]["decisions"][0]["finalized"] is False
-
-    next_module = service.answer(
-        started.session_id,
-        CourseBriefAnswerRequest(
-            expected_revision=lesson_extras.revision,
-            comment="Ничего",
         ),
     )
     assert next_module.question.number == 2
@@ -215,7 +204,7 @@ def test_all_excluded_requests_goal_and_restarts_same_session():
     )
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=ai, storage=storage)
-    started = service.start("Тема")
+    started = service.start("Тема", module_count=2)
 
     second = service.answer(
         started.session_id,
@@ -246,7 +235,7 @@ def test_all_excluded_requests_goal_and_restarts_same_session():
 def test_demo_fallback_asks_on_text_only_answer_without_network():
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=CourseBriefDemoClient(), storage=storage)
-    started = service.start("Тема")
+    started = service.start("Тема", module_count=2)
 
     follow_up = service.answer(
         started.session_id,
@@ -309,7 +298,7 @@ def test_add_module_asks_then_inserts_and_recounts_questions():
     )
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=ai, storage=storage)
-    started = service.start("Тема")
+    started = service.start("Тема", module_count=2)
     assert started.progress.total_questions == 2
 
     clarifying = service.answer(
@@ -344,7 +333,7 @@ def test_add_module_asks_then_inserts_and_recounts_questions():
 def test_demo_fallback_detects_add_module_request_from_comment():
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=CourseBriefDemoClient(), storage=storage)
-    started = service.start("Тема")
+    started = service.start("Тема", module_count=2)
     clarifying = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
@@ -375,7 +364,7 @@ def test_included_module_enters_lesson_scope_with_listed_lessons():
     )
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=ai, storage=storage)
-    started = service.start("Тема")
+    started = service.start("Тема", module_count=2)
     lesson_scope = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
@@ -392,6 +381,60 @@ def test_included_module_enters_lesson_scope_with_listed_lessons():
     assert decision["signals"]["knowledge"]["value"] == "middle"
     assert decision["phase"] == "lesson_scope"
     assert decision["finalized"] is False
+
+
+def test_comment_declines_extras_does_not_match_urok_substring():
+    """«ок» внутри «урок» не должно пропускать extras."""
+    from backend.services.course_brief_interview import (
+        comment_declines_extras,
+        lesson_scope_question,
+    )
+
+    assert comment_declines_extras("ок") is True
+    assert comment_declines_extras("хорошо") is True
+    assert comment_declines_extras("урок про JOIN") is False
+    assert comment_declines_extras("добавить урок про окна") is False
+    assert comment_declines_extras("оставить все") is True
+
+    many = [f"Урок {index}" for index in range(1, 10)]
+    text = lesson_scope_question("Блок", many)
+    for title in many:
+        assert f"«{title}»" in text
+    assert "Всего в черновике: 9" in text
+
+
+def test_demo_fallback_splits_module_from_comment():
+    """Разделение текущего блока увеличивает N и возвращает к module_gate."""
+    storage = MemoryStorage()
+    service = CourseBriefService(ai_client=CourseBriefDemoClient(), storage=storage)
+    started = service.start("Тема", module_count=2)
+    initial_total = started.progress.total_questions
+    clarifying = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=started.revision,
+            comment="Раздели на теорию SQL и практику SQL",
+        ),
+    )
+    # Либо сразу split (если оба названия извлечены), либо уточнение.
+    if clarifying.question.kind == CourseBriefQuestionKind.SPLIT_MODULE:
+        clarifying = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=clarifying.revision,
+                comment="теория SQL и практика SQL",
+            ),
+        )
+    assert clarifying.progress.total_questions == initial_total + 1
+    assert clarifying.question.kind == CourseBriefQuestionKind.MODULE
+    assert clarifying.question.number == 1
+    titles = [
+        module["module_title"]
+        for module in storage.records[started.session_id]["preliminary_outline"]["modules"]
+    ]
+    assert len(titles) == initial_total + 1
+    assert any("теор" in title.lower() or "sql" in title.lower() for title in titles[:2])
+    assert "Разделил блок" in clarifying.question.text
 
 
 def test_lesson_extras_dedups_topics_from_other_modules():
@@ -413,7 +456,7 @@ def test_lesson_extras_dedups_topics_from_other_modules():
     )
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=ai, storage=storage)
-    started = service.start("Тема")
+    started = service.start("Тема", module_count=2)
     scope = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
@@ -423,11 +466,12 @@ def test_lesson_extras_dedups_topics_from_other_modules():
         ),
     )
     assert scope.question.kind == CourseBriefQuestionKind.LESSON_SCOPE
+    # Комментарий без decline-фразы — спрашиваем extras.
     extras = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
             expected_revision=scope.revision,
-            comment="Оставить все",
+            comment="Оставить текущий список уроков",
         ),
     )
     assert extras.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS
@@ -451,3 +495,106 @@ def test_lesson_extras_dedups_topics_from_other_modules():
         or (item.get("title") or "").lower() == "практика"
         for item in deferred
     )
+
+
+def test_prebrief_params_drive_draft_generation():
+    """Pre-brief цель/уровень/объём передаются в generate_course_structure и brief_meta."""
+    storage = MemoryStorage()
+    ai = InterviewAI([])
+    service = CourseBriefService(ai_client=ai, storage=storage)
+    started = service.start(
+        "SQL для аналитиков",
+        course_goals="Научиться писать отчёты",
+        audience_level="junior",
+        module_count=3,
+    )
+    assert started.progress.total_questions == 3
+    assert ai.generate_calls
+    call = ai.generate_calls[0]
+    assert call["course_goals"] == "Научиться писать отчёты"
+    assert call["audience_level"] == "junior"
+    assert call["module_count"] == 3
+    meta = storage.records[started.session_id]["brief_meta"]
+    assert meta["course_goals"] == "Научиться писать отчёты"
+    assert meta["audience_level"] == "junior"
+    assert meta["module_count"] == 3
+
+
+def test_lesson_draft_dedups_topics_from_other_modules():
+    """После L' дубликаты уроков убираются и пишутся в deferred_topics."""
+    ai = InterviewAI(
+        [
+            {
+                "signals": _signals(
+                    _confirmed("include"),
+                    _confirmed("standard"),
+                    _confirmed("middle"),
+                    _missing(),
+                    _missing(),
+                ),
+                "action": "next_module",
+                "follow_up_question": None,
+            },
+        ]
+    )
+    storage = MemoryStorage()
+    service = CourseBriefService(ai_client=ai, storage=storage)
+    started = service.start("Тема", module_count=2)
+    # Первый модуль без уроков, второй уже содержит «Практика» — L' вернёт дубль.
+    outline = storage.records[started.session_id]["preliminary_outline"]
+    outline["modules"][0]["lessons"] = []
+    outline["modules"][1]["lessons"] = [
+        {
+            "lesson_title": "Практика",
+            "lesson_goal": "Применить.",
+            "content_outline": ["Задание"],
+            "assessment": "Практика",
+            "format": "practice",
+            "estimated_time_minutes": 30,
+        }
+    ]
+    storage.records[started.session_id]["preliminary_outline"] = outline
+
+    # Подменяем call_ai_json на генерацию уроков с дублем.
+    def lesson_draft(**_kwargs):
+        return {
+            "lessons": [
+                {
+                    "lesson_title": "Практика",
+                    "lesson_goal": "Дубль.",
+                    "content_outline": ["A"],
+                    "assessment": "Практика",
+                    "format": "practice",
+                    "estimated_time_minutes": 30,
+                },
+                {
+                    "lesson_title": "HAVING",
+                    "lesson_goal": "Уникальная тема.",
+                    "content_outline": ["B"],
+                    "assessment": "Практика",
+                    "format": "theory",
+                    "estimated_time_minutes": 30,
+                },
+            ]
+        }
+
+    ai.call_ai_json = lesson_draft
+    scope = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=started.revision,
+            depth=CourseBriefDepth.STANDARD,
+            knowledge_level=DifficultyLevel.MIDDLE,
+        ),
+    )
+    assert scope.question.kind == CourseBriefQuestionKind.LESSON_SCOPE
+    titles = [
+        lesson["lesson_title"]
+        for lesson in storage.records[started.session_id]["preliminary_outline"]["modules"][0][
+            "lessons"
+        ]
+    ]
+    assert "Практика" not in titles
+    assert "HAVING" in titles
+    deferred = storage.records[started.session_id].get("deferred_topics") or []
+    assert any((item.get("title") or "").lower() == "практика" for item in deferred)

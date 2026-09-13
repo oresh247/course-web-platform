@@ -137,7 +137,9 @@ _ADD_MODULE_PATTERN = re.compile(
 )
 _SPLIT_MODULE_PATTERN = re.compile(
     r"(?:раздел\w*|раздели\w*|разбить|разбей|отдел\w+)\s+"
-    r"(?:на\s+два(?:\s+(?:блок\w*|модул\w*|раздел\w*))?\s+)?"
+    r"(?:(?:блок|модуль|раздел)\w*\s+)?"
+    r"(?:на\s+)?"
+    r"(?:два(?:\s+(?:блок\w*|модул\w*|раздел\w*))?\s+)?"
     r"(.+?)\s+и\s+(.+?)(?:\.|$)",
     re.IGNORECASE,
 )
@@ -455,9 +457,11 @@ def lesson_scope_question(
     if knowledge_level:
         level_hint = f" Учтите заявленный уровень «{knowledge_level}»."
     if titles:
-        listed = ", ".join(f"«{title}»" for title in titles[:8])
+        listed = ", ".join(f"«{title}»" for title in titles)
+        count_hint = f" Всего в черновике: {len(titles)}."
         return (
-            f"Для блока «{module_title}» подготовлен черновик уроков: {listed}.{level_hint} "
+            f"Для блока «{module_title}» подготовлен черновик уроков: {listed}."
+            f"{level_hint}{count_hint} "
             "Оставить все эти уроки или какие-то убрать либо заменить?"
         )
     return (
@@ -502,7 +506,25 @@ def comment_declines_extras(comment: Optional[str]) -> bool:
     text = (comment or "").strip().lower()
     if not text:
         return False
-    decline_tokens = (
+
+    # Короткие ответы — только точное совпадение всей фразы.
+    # Нельзя искать «ок» подстрокой: оно входит в «урок».
+    if text in {
+        "ок",
+        "окей",
+        "ok",
+        "okay",
+        "хорошо",
+        "подходит",
+        "да",
+        "норм",
+        "нормально",
+        "согласен",
+        "согласна",
+    }:
+        return True
+
+    decline_phrases = (
         "ничего не добав",
         "не добавляем",
         "не добавлять",
@@ -521,11 +543,8 @@ def comment_declines_extras(comment: Optional[str]) -> bool:
         "все уроки",
         "все темы",
         "оставить как есть",
-        "ок",
-        "хорошо",
-        "подходит",
     )
-    if any(token in text for token in decline_tokens):
+    if any(phrase in text for phrase in decline_phrases):
         # «оставить все и добавить X» — extras всё же нужны.
         if any(
             token in text
@@ -886,17 +905,18 @@ def scope_question_for_lessons(
         if isinstance(topic, str) and topic.strip()
     ]
     if titles:
-        listed = ", ".join(f"«{title}»" for title in titles[:6])
+        listed = ", ".join(f"«{title}»" for title in titles)
+        count_hint = f" Всего: {len(titles)}."
         if extras:
             wanted = ", ".join(f"«{topic}»" for topic in extras[:4])
             return (
-                f"Сейчас в разделе заложены темы: {listed}. "
+                f"Сейчас в разделе заложены темы: {listed}.{count_hint} "
                 f"Вы также назвали {wanted}. "
                 "Оставить текущий список, добавить названное к нему "
                 "или заменить часть тем?"
             )
         return (
-            f"Сейчас в разделе заложены темы: {listed}. "
+            f"Сейчас в разделе заложены темы: {listed}.{count_hint} "
             "Оставить все или какие-то убрать либо заменить?"
         )
     if extras:
@@ -1329,13 +1349,11 @@ def choose_split_module_action(
         return None
     title = (request.title or "").strip()
     second_title = (request.second_title or "").strip()
+    if title and second_title and title.lower() != second_title.lower():
+        return "split"
     if followup_count >= MAX_SPLIT_MODULE_FOLLOWUPS:
-        return "split" if title and second_title else ("ask" if followup_count < MAX_SPLIT_MODULE_FOLLOWUPS + 1 else None)
-    if not title or not second_title:
-        return "ask"
-    if title.lower() == second_title.lower():
-        return "ask"
-    return "split"
+        return None
+    return "ask"
 
 
 def add_module_question(request: CourseBriefStructureRequest) -> str:

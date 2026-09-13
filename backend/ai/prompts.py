@@ -145,7 +145,7 @@ COURSE_BRIEF_INTERVIEW_SYSTEM_PROMPT = """Ты — методист и инте�
 
 Выбранная глубина кроме skip включает модуль. skip исключает модуль: тогда depth/knowledge/application/scope = not_applicable. Не задавай больше max_followups уточнений на текущую фазу. Для lesson_scope всегда перечисляй названия уроков. Для lesson_extras спроси, чего не хватает в блоке.
 
-Если пользователь просит новый раздел курса (не урок внутри текущего блока), заполни structure_request kind=add_module. Иначе kind=none.
+Если пользователь просит новый раздел курса (не урок внутри текущего блока), заполни structure_request kind=add_module. Если просит разделить текущий блок на два, заполни kind=split_module, title и second_title. Иначе kind=none.
 
 action ask — нужен ответ; next_module/finish/revise_goal — предложения, решение принимает сервер. При ask/revise_goal follow_up_question — один вопрос на русском до 300 символов с одним «?».
 

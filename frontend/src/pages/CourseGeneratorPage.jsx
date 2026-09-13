@@ -40,8 +40,20 @@ const CONFIDENCE_STATUS_LABELS = {
   conflict: 'нужно устранить противоречие',
 }
 
+const VOLUME_OPTIONS = [
+  { value: 2, label: '2 раздела', hint: 'Короткий курс' },
+  { value: 3, label: '3 раздела', hint: 'Сжатый объём' },
+  { value: 4, label: '4 раздела', hint: 'Стандарт' },
+  { value: 6, label: '6 разделов', hint: 'Развёрнуто' },
+  { value: 8, label: '8 разделов', hint: 'Большой курс' },
+]
+
+const PREBRIEF_GOALS_QUESTION = 'Какую основную цель должен закрывать курс?'
+const PREBRIEF_LEVEL_QUESTION = 'На какой уровень аудитории рассчитан курс?'
+const PREBRIEF_VOLUME_QUESTION = 'Сколько примерно разделов заложить в черновик структуры?'
+
 const WELCOME_MESSAGE_TEXT = (
-  'Начнём с темы. Я подготовлю рабочую структуру курса, а затем уточню каждый её раздел — без показа черновика до финального результата.'
+  'Начнём с темы, цели, уровня аудитории и объёма. По ним я подготовлю скрытый черновик, а затем уточню каждый раздел — без показа полной структуры до финала.'
 )
 
 function createMessage(role, text, isComplete = false) {
@@ -190,6 +202,9 @@ function getQuestionLabel(question) {
   if (kind === 'add_module') {
     return 'Новый раздел'
   }
+  if (kind === 'split_module') {
+    return 'Разделение раздела'
+  }
   if (kind === 'revise_goal' || kind === 'goal_revision') {
     return 'Уточнение цели курса'
   }
@@ -218,7 +233,11 @@ function getAnswerControls(question) {
   if (raw === 'module_gate' || raw === 'knowledge' || raw === 'depth' || raw === 'text') {
     return raw
   }
-  if (getQuestionKind(question) === 'module') return 'module_gate'
+  const kind = getQuestionKind(question)
+  if (kind === 'module') return 'module_gate'
+  if (kind === 'split_module' || kind === 'add_module' || kind === 'lesson_scope' || kind === 'lesson_extras') {
+    return 'text'
+  }
   const text = String(question?.text || '').toLowerCase()
   if (text.includes('уровен') || text.includes('опыт')) return 'knowledge'
   if (text.includes('глубин') || text.includes('нужен ли')) return 'depth'
@@ -302,6 +321,10 @@ function clearActiveCourseBriefSessionId() {
 function CourseGeneratorPage() {
   const navigate = useNavigate()
   const [topic, setTopic] = useState('')
+  const [preBriefStep, setPreBriefStep] = useState('topic')
+  const [courseGoals, setCourseGoals] = useState('')
+  const [audienceLevel, setAudienceLevel] = useState(null)
+  const [moduleCount, setModuleCount] = useState(null)
   const [sessionId, setSessionId] = useState(null)
   const [question, setQuestion] = useState(null)
   const [revision, setRevision] = useState(1)
@@ -320,6 +343,7 @@ function CourseGeneratorPage() {
   const messagesContainerRef = useRef(null)
   const submitLockRef = useRef(false)
 
+  const isPreBrief = phase === 'idle' || phase === 'prebrief'
   const isQuestioning = phase === 'questioning'
   const isCompleted = phase === 'completed'
   const isGoalRevision = isGoalRevisionQuestion(question)
@@ -438,6 +462,33 @@ function CourseGeneratorPage() {
     }
   }, [])
 
+  const startBriefWithPreBrief = async ({
+    topicValue,
+    goalsValue,
+    levelValue,
+    moduleCountValue,
+  }) => {
+    setError('')
+    setPhase('starting')
+    setIsSubmitting(true)
+
+    try {
+      const response = await coursesApi.startCourseBrief({
+        topic: topicValue,
+        course_goals: goalsValue,
+        audience_level: levelValue,
+        module_count: moduleCountValue,
+      })
+      applyBriefResponse(response, { mode: 'append' })
+    } catch (requestError) {
+      setPhase('prebrief')
+      setPreBriefStep('volume')
+      setError(getApiErrorMessage(requestError))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const handleTopicSubmit = async (event) => {
     event.preventDefault()
     const trimmedTopic = topic.trim()
@@ -448,22 +499,58 @@ function CourseGeneratorPage() {
     }
 
     setError('')
-    setPhase('starting')
+    setPhase('prebrief')
+    setPreBriefStep('goals')
     setMessages((currentMessages) => [
       ...currentMessages,
       createMessage('user', trimmedTopic),
+      createMessage('assistant', PREBRIEF_GOALS_QUESTION),
     ])
-    setIsSubmitting(true)
+  }
 
-    try {
-      const response = await coursesApi.startCourseBrief(trimmedTopic)
-      applyBriefResponse(response, { mode: 'append' })
-    } catch (requestError) {
-      setPhase('idle')
-      setError(getApiErrorMessage(requestError))
-    } finally {
-      setIsSubmitting(false)
+  const handlePreBriefGoalsSubmit = (event) => {
+    event.preventDefault()
+    const trimmedGoals = courseGoals.trim()
+    if (trimmedGoals.length < 3) {
+      setError('Опишите цель курса не короче трёх символов.')
+      return
     }
+
+    setError('')
+    setPreBriefStep('level')
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      createMessage('user', trimmedGoals),
+      createMessage('assistant', PREBRIEF_LEVEL_QUESTION),
+    ])
+  }
+
+  const handlePreBriefLevelSelect = (level) => {
+    setAudienceLevel(level)
+    setError('')
+    setPreBriefStep('volume')
+    const label = KNOWLEDGE_OPTIONS.find((item) => item.value === level)?.label || level
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      createMessage('user', label),
+      createMessage('assistant', PREBRIEF_VOLUME_QUESTION),
+    ])
+  }
+
+  const handlePreBriefVolumeSelect = async (count) => {
+    if (isSubmitting) return
+    setModuleCount(count)
+    const option = VOLUME_OPTIONS.find((item) => item.value === count)
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      createMessage('user', option?.label || `${count} разделов`),
+    ])
+    await startBriefWithPreBrief({
+      topicValue: topic.trim(),
+      goalsValue: courseGoals.trim(),
+      levelValue: audienceLevel,
+      moduleCountValue: count,
+    })
   }
 
   const handleAnswerSubmit = async (event) => {
@@ -668,27 +755,97 @@ function CourseGeneratorPage() {
           <div className="course-generator-page__composer-area">
             {error && <p className="course-generator-page__error" role="alert">{error}</p>}
 
-            {phase === 'idle' || phase === 'starting' ? (
-              <form className="course-generator-page__composer" onSubmit={handleTopicSubmit}>
-                <label className="course-generator-page__field-label" htmlFor="course-topic">
-                  Тема будущего курса
-                </label>
-                <div className="course-generator-page__composer-box">
-                  <textarea
-                    id="course-topic"
-                    className="course-generator-page__textarea"
-                    value={topic}
-                    onChange={(event) => setTopic(event.target.value)}
-                    placeholder="Например: запускать AI-продукты, управлять командой, работать с данными…"
-                    rows="2"
-                    maxLength="200"
-                    disabled={isSubmitting}
-                  />
-                  <button className="course-generator-page__primary-button" type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? 'Подготавливаем…' : 'Начать уточнение'}
-                  </button>
+            {isPreBrief ? (
+              preBriefStep === 'topic' ? (
+                <form className="course-generator-page__composer" onSubmit={handleTopicSubmit}>
+                  <label className="course-generator-page__field-label" htmlFor="course-topic">
+                    Тема будущего курса
+                  </label>
+                  <div className="course-generator-page__composer-box">
+                    <textarea
+                      id="course-topic"
+                      className="course-generator-page__textarea"
+                      value={topic}
+                      onChange={(event) => setTopic(event.target.value)}
+                      placeholder="Например: запускать AI-продукты, управлять командой, работать с данными…"
+                      rows="2"
+                      maxLength="200"
+                      disabled={isSubmitting}
+                    />
+                    <button className="course-generator-page__primary-button" type="submit" disabled={isSubmitting}>
+                      Далее
+                    </button>
+                  </div>
+                </form>
+              ) : preBriefStep === 'goals' ? (
+                <form className="course-generator-page__composer" onSubmit={handlePreBriefGoalsSubmit}>
+                  <label className="course-generator-page__field-label" htmlFor="course-goals">
+                    Цель курса
+                  </label>
+                  <div className="course-generator-page__composer-box">
+                    <textarea
+                      id="course-goals"
+                      className="course-generator-page__textarea"
+                      value={courseGoals}
+                      onChange={(event) => setCourseGoals(event.target.value)}
+                      placeholder="Например: научиться строить отчёты и принимать решения на данных"
+                      rows="2"
+                      maxLength="1000"
+                      disabled={isSubmitting}
+                    />
+                    <button className="course-generator-page__primary-button" type="submit" disabled={isSubmitting}>
+                      Далее
+                    </button>
+                  </div>
+                </form>
+              ) : preBriefStep === 'level' ? (
+                <div className="course-generator-page__answer-form">
+                  <div className="course-generator-page__question-meta">
+                    <span>Перед черновиком</span>
+                    <strong>{PREBRIEF_LEVEL_QUESTION}</strong>
+                  </div>
+                  <fieldset disabled={isSubmitting}>
+                    <legend>Уровень аудитории</legend>
+                    <div className="course-generator-page__choice-list course-generator-page__choice-list--compact">
+                      {KNOWLEDGE_OPTIONS.map((option) => (
+                        <button
+                          className={`course-generator-page__choice ${audienceLevel === option.value ? 'is-selected' : ''}`}
+                          type="button"
+                          key={option.value}
+                          aria-pressed={audienceLevel === option.value}
+                          onClick={() => handlePreBriefLevelSelect(option.value)}
+                        >
+                          <strong>{option.label}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
                 </div>
-              </form>
+              ) : (
+                <div className="course-generator-page__answer-form">
+                  <div className="course-generator-page__question-meta">
+                    <span>Перед черновиком</span>
+                    <strong>{PREBRIEF_VOLUME_QUESTION}</strong>
+                  </div>
+                  <fieldset disabled={isSubmitting}>
+                    <legend>Объём черновика</legend>
+                    <div className="course-generator-page__choice-list">
+                      {VOLUME_OPTIONS.map((option) => (
+                        <button
+                          className={`course-generator-page__choice ${moduleCount === option.value ? 'is-selected' : ''}`}
+                          type="button"
+                          key={option.value}
+                          aria-pressed={moduleCount === option.value}
+                          onClick={() => handlePreBriefVolumeSelect(option.value)}
+                        >
+                          <strong>{option.label}</strong>
+                          <span>{option.hint}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                </div>
+              )
             ) : isQuestioning ? (
               <form className="course-generator-page__answer-form" onSubmit={handleAnswerSubmit}>
                 <div className="course-generator-page__question-meta">

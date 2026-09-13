@@ -46,6 +46,7 @@ from backend.services.course_brief_interview import (
     MAX_ADD_MODULE_FOLLOWUPS,
     MAX_LESSON_PHASE_FOLLOWUPS,
     MAX_MODULE_FOLLOWUPS,
+    MAX_SPLIT_MODULE_FOLLOWUPS,
     MODULE_GATE_SIGNALS,
     PHASE_DONE,
     PHASE_LESSON_EXTRAS,
@@ -57,12 +58,14 @@ from backend.services.course_brief_interview import (
     build_lesson_decisions,
     choose_add_module_action,
     choose_server_action,
+    choose_split_module_action,
     collect_other_module_topics,
     comment_declines_extras,
     confidence_from_signals,
     course_brief_interview_json_schema,
     clarifying_reply_for_lessons,
     default_question_for_missing,
+    enrich_pending_structure_from_comment,
     extract_requested_topics,
     find_duplicate_topics,
     infer_structure_request_from_comment,
@@ -83,6 +86,7 @@ from backend.services.course_brief_interview import (
     scope_question_for_lessons,
     signals_to_dict,
     snapshot_lesson_promise,
+    split_module_question,
     validate_interview_result,
 )
 
@@ -114,32 +118,25 @@ class CourseBriefService:
         self._ai_client = ai_client
         self._storage = storage or db
 
-    def start(self, topic: str) -> CourseBriefResponse:
-        """Создаёт скрытый черновик и возвращает пользователю первый вопрос."""
-        try:
-            draft_data = self._get_ai_client().generate_course_structure(
-                topic=topic,
-                audience_level=self.DEFAULT_AUDIENCE_LEVEL,
-                module_count=self.DEFAULT_MODULE_COUNT,
-                course_goals="Цели и глубина проработки уточняются в диалоге.",
-                duration_weeks=self.DEFAULT_DURATION_WEEKS,
-                hours_per_week=self.DEFAULT_HOURS_PER_WEEK,
-            )
-        except Exception as error:
-            logger.exception("Не удалось сформировать черновик структуры курса")
-            raise CourseBriefGenerationError("Не удалось сформировать черновик структуры курса") from error
-
-        if not draft_data:
-            raise CourseBriefGenerationError("Модель не вернула черновик структуры курса")
-
-        try:
-            draft_course = Course(**draft_data)
-        except Exception as error:
-            logger.exception("Модель вернула некорректный черновик структуры курса")
-            raise CourseBriefGenerationError("Модель вернула некорректную структуру курса") from error
-
-        if not draft_course.modules:
-            raise CourseBriefGenerationError("В черновике структуры нет разделов для уточнения")
+    def start(
+        self,
+        topic: str,
+        *,
+        course_goals: Optional[str] = None,
+        audience_level: Optional[str] = None,
+        module_count: Optional[int] = None,
+        duration_weeks: Optional[int] = None,
+        hours_per_week: Optional[int] = None,
+    ) -> CourseBriefResponse:
+        """Создаёт скрытый черновик по pre-brief параметрам и возвращает первый вопрос."""
+        brief_meta = self._normalize_brief_meta(
+            course_goals=course_goals,
+            audience_level=audience_level,
+            module_count=module_count,
+            duration_weeks=duration_weeks,
+            hours_per_week=hours_per_week,
+        )
+        draft_course = self._generate_draft_course(topic, brief_meta=brief_meta)
 
         session_id = str(uuid4())
         total_questions = len(draft_course.modules)
@@ -153,6 +150,8 @@ class CourseBriefService:
             "total_questions": total_questions,
             "final_outline": None,
             "revision": 1,
+            "brief_meta": brief_meta,
+            "deferred_topics": [],
         }
         self._storage.create_course_brief(record)
         self._storage.add_course_brief_message(session_id, "user", topic, 1)
@@ -247,20 +246,37 @@ class CourseBriefService:
         )
         if interview_result.structure_request.kind == CourseBriefStructureChangeKind.NONE:
             inferred_request = infer_structure_request_from_comment(answer.comment)
-            if inferred_request.kind == CourseBriefStructureChangeKind.ADD_MODULE:
+            if inferred_request.kind in {
+                CourseBriefStructureChangeKind.ADD_MODULE,
+                CourseBriefStructureChangeKind.SPLIT_MODULE,
+            }:
                 interview_result.structure_request = inferred_request
         structure_request = merge_structure_request(
             pending_structure_change,
             interview_result.structure_request,
         )
+        # Дополняем title/purpose/second_title только на follow-up после ask,
+        # иначе весь текст «Добавьте модуль про X» ошибочно станет purpose.
+        if pending_structure_change and structure_request.kind in {
+            CourseBriefStructureChangeKind.ADD_MODULE,
+            CourseBriefStructureChangeKind.SPLIT_MODULE,
+        }:
+            structure_request = enrich_pending_structure_from_comment(
+                structure_request,
+                answer.comment,
+            )
         add_followup_count = self._structure_followup_count(pending_structure_change)
-        structure_action = choose_add_module_action(
+        split_action = choose_split_module_action(structure_request, add_followup_count)
+        add_action = choose_add_module_action(
             structure_request,
             add_followup_count,
             (item.module_title for item in draft_course.modules),
         )
+        # Разделение текущего блока важнее добавления нового.
+        structure_action = split_action or add_action
 
         inserted_module_title = None
+        split_notice = None
         if structure_action == "insert":
             inserted_number = current_index + 2
             draft_course = self._insert_requested_module(
@@ -275,105 +291,172 @@ class CourseBriefService:
             pending_structure_change = None
             module = draft_course.modules[current_index]
             lesson_titles = [lesson.lesson_title for lesson in module.lessons]
+        elif structure_action == "split":
+            first_title = (structure_request.title or "").strip()
+            second_title = (structure_request.second_title or "").strip()
+            old_number = module.module_number
+            draft_course = self._split_current_module(
+                draft_course,
+                current_index,
+                first_title=first_title,
+                second_title=second_title,
+                topic=record["topic"],
+            )
+            decisions = [
+                item
+                for item in decisions
+                if item.get("module_number") != old_number
+            ]
+            decisions = self._shift_decisions_after_insert(decisions, current_index + 2)
+            structure_request = None
+            pending_structure_change = None
+            module = draft_course.modules[current_index]
+            lesson_titles = [lesson.lesson_title for lesson in module.lessons]
+            split_notice = (
+                f"Разделил блок на «{first_title}» и «{second_title}». "
+            )
+            # После split заново уточняем первый из двух блоков.
+            action = CourseBriefInterviewAction.ASK
+            pending_question = (
+                split_notice + self._build_question(draft_course, current_index).text
+            )
+            pending_kind = CourseBriefQuestionKind.MODULE.value
+            pending_answer_controls = CourseBriefAnswerControls.MODULE_GATE.value
+            signals = CourseBriefInterviewSignals(
+                necessity=CourseBriefInterviewSignal(status=CourseBriefSignalStatus.MISSING),
+                depth=CourseBriefInterviewSignal(status=CourseBriefSignalStatus.MISSING),
+                knowledge=CourseBriefInterviewSignal(status=CourseBriefSignalStatus.MISSING),
+                application=CourseBriefInterviewSignal(status=CourseBriefSignalStatus.MISSING),
+                scope=CourseBriefInterviewSignal(status=CourseBriefSignalStatus.MISSING),
+            )
+            followup_count = 0
+            current_decision = None
+            history = []
 
         signals = merge_signals(
             current_decision.get("signals") if current_decision else None,
             interview_result.signals,
-        )
-        signals = apply_answer_buttons_to_signals(signals, answer)
-        signals = apply_comment_hints_to_signals(signals, answer.comment)
-        followup_count = self._followup_count(current_decision)
-        action = choose_server_action(
-            signals=signals,
-            followup_count=followup_count,
-            max_followups=MAX_MODULE_FOLLOWUPS,
-            is_last_module=current_index == len(draft_course.modules) - 1,
-            included_modules_before_current=included_before_current,
-            critical_signals=MODULE_GATE_SIGNALS,
-        )
-        # В demo/fallback-режиме выбранная кнопка остаётся достаточным решением
-        # по module_gate. Полнота сигналов всё равно видна в confidence, но локальный
-        # сценарий не требует сети и не застревает на каждом вопросе.
-        if (
-            structure_action != "ask"
-            and used_fallback
-            and answer.depth is not None
-            and action == CourseBriefInterviewAction.ASK
-        ):
+        ) if structure_action != "split" else signals
+        if structure_action != "split":
+            signals = apply_answer_buttons_to_signals(signals, answer)
+            signals = apply_comment_hints_to_signals(signals, answer.comment)
+            followup_count = self._followup_count(current_decision)
             action = choose_server_action(
                 signals=signals,
-                followup_count=MAX_MODULE_FOLLOWUPS,
+                followup_count=followup_count,
                 max_followups=MAX_MODULE_FOLLOWUPS,
                 is_last_module=current_index == len(draft_course.modules) - 1,
                 included_modules_before_current=included_before_current,
                 critical_signals=MODULE_GATE_SIGNALS,
             )
+            # В demo/fallback-режиме выбранная кнопка остаётся достаточным решением
+            # по module_gate. Полнота сигналов всё равно видна в confidence, но локальный
+            # сценарий не требует сети и не застревает на каждом вопросе.
+            if (
+                structure_action != "ask"
+                and used_fallback
+                and answer.depth is not None
+                and action == CourseBriefInterviewAction.ASK
+            ):
+                action = choose_server_action(
+                    signals=signals,
+                    followup_count=MAX_MODULE_FOLLOWUPS,
+                    max_followups=MAX_MODULE_FOLLOWUPS,
+                    is_last_module=current_index == len(draft_course.modules) - 1,
+                    included_modules_before_current=included_before_current,
+                    critical_signals=MODULE_GATE_SIGNALS,
+                )
 
-        pending_question = None
-        pending_kind = None
-        pending_answer_controls = None
-        stored_structure_change = None
-        decision_phase = PHASE_MODULE_GATE
-        if structure_action == "ask":
-            add_followup_count += 1
-            pending_question = self._select_add_module_question(
-                interview_result,
-                structure_request,
-            )
-            pending_kind = CourseBriefQuestionKind.ADD_MODULE.value
-            pending_answer_controls = CourseBriefAnswerControls.TEXT.value
-            stored_structure_change = {
-                **dump_interview_model(structure_request),
-                "followup_count": add_followup_count,
-            }
-            action = CourseBriefInterviewAction.ASK
-        elif action == CourseBriefInterviewAction.ASK:
-            followup_count += 1
-            pending_question = self._select_follow_up_question(
-                interview_result,
-                signals,
-                CourseBriefQuestionKind.FOLLOW_UP,
-                lesson_titles=lesson_titles,
-                comment=answer.comment,
-            )
-            pending_kind = CourseBriefQuestionKind.FOLLOW_UP.value
-            gap = primary_missing_signal(signals, MODULE_GATE_SIGNALS)
-            if gap == "knowledge":
-                pending_answer_controls = CourseBriefAnswerControls.KNOWLEDGE.value
-            elif gap in {"depth", "necessity"}:
-                pending_answer_controls = CourseBriefAnswerControls.DEPTH.value
-            else:
+        if structure_action != "split":
+            pending_question = None
+            pending_kind = None
+            pending_answer_controls = None
+            stored_structure_change = None
+            decision_phase = PHASE_MODULE_GATE
+            if structure_action == "ask":
+                add_followup_count += 1
+                if structure_request.kind == CourseBriefStructureChangeKind.SPLIT_MODULE:
+                    pending_question = split_module_question(
+                        structure_request,
+                        module.module_title,
+                    )
+                    if (
+                        interview_result.structure_request.kind
+                        == CourseBriefStructureChangeKind.SPLIT_MODULE
+                        and interview_result.follow_up_question
+                    ):
+                        pending_question = interview_result.follow_up_question.strip()
+                    pending_kind = CourseBriefQuestionKind.SPLIT_MODULE.value
+                else:
+                    pending_question = self._select_add_module_question(
+                        interview_result,
+                        structure_request,
+                    )
+                    pending_kind = CourseBriefQuestionKind.ADD_MODULE.value
                 pending_answer_controls = CourseBriefAnswerControls.TEXT.value
-        elif action == CourseBriefInterviewAction.REVISE_GOAL:
-            pending_question = self._select_follow_up_question(
-                interview_result,
-                signals,
-                CourseBriefQuestionKind.REVISE_GOAL,
-                lesson_titles=lesson_titles,
-                comment=answer.comment,
-            )
-            pending_kind = CourseBriefQuestionKind.REVISE_GOAL.value
-            pending_answer_controls = CourseBriefAnswerControls.TEXT.value
-        elif module_is_included(signals):
-            # Включённый блок: сначала черновик уроков, потом extras, финал в конце.
-            draft_course = self._ensure_module_lesson_draft(
-                draft_course,
-                current_index,
-                topic=record["topic"],
-                depth=self._decision_depth(signals, answer),
-                knowledge_level=self._decision_knowledge_level(signals, answer),
-            )
-            module = draft_course.modules[current_index]
-            lesson_titles = [lesson.lesson_title for lesson in module.lessons]
-            pending_question = lesson_scope_question(
-                module.module_title,
-                lesson_titles,
-                knowledge_level=self._decision_knowledge_level(signals, answer),
-            )
-            pending_kind = CourseBriefQuestionKind.LESSON_SCOPE.value
-            pending_answer_controls = CourseBriefAnswerControls.TEXT.value
-            decision_phase = PHASE_LESSON_SCOPE
-            action = CourseBriefInterviewAction.ASK
+                stored_structure_change = {
+                    **dump_interview_model(structure_request),
+                    "followup_count": add_followup_count,
+                }
+                action = CourseBriefInterviewAction.ASK
+            elif action == CourseBriefInterviewAction.ASK:
+                followup_count += 1
+                pending_question = self._select_follow_up_question(
+                    interview_result,
+                    signals,
+                    CourseBriefQuestionKind.FOLLOW_UP,
+                    lesson_titles=lesson_titles,
+                    comment=answer.comment,
+                )
+                pending_kind = CourseBriefQuestionKind.FOLLOW_UP.value
+                gap = primary_missing_signal(signals, MODULE_GATE_SIGNALS)
+                if gap == "knowledge":
+                    pending_answer_controls = CourseBriefAnswerControls.KNOWLEDGE.value
+                elif gap in {"depth", "necessity"}:
+                    pending_answer_controls = CourseBriefAnswerControls.DEPTH.value
+                else:
+                    pending_answer_controls = CourseBriefAnswerControls.TEXT.value
+            elif action == CourseBriefInterviewAction.REVISE_GOAL:
+                pending_question = self._select_follow_up_question(
+                    interview_result,
+                    signals,
+                    CourseBriefQuestionKind.REVISE_GOAL,
+                    lesson_titles=lesson_titles,
+                    comment=answer.comment,
+                )
+                pending_kind = CourseBriefQuestionKind.REVISE_GOAL.value
+                pending_answer_controls = CourseBriefAnswerControls.TEXT.value
+            elif module_is_included(signals):
+                # Включённый блок: сначала черновик уроков, потом extras, финал в конце.
+                draft_course, lesson_deferred = self._ensure_module_lesson_draft(
+                    draft_course,
+                    current_index,
+                    topic=record["topic"],
+                    depth=self._decision_depth(signals, answer),
+                    knowledge_level=self._decision_knowledge_level(signals, answer),
+                )
+                if lesson_deferred:
+                    deferred_topics = list(
+                        self._load_json(record.get("deferred_topics"), []) or []
+                    )
+                    if not isinstance(deferred_topics, list):
+                        deferred_topics = []
+                    deferred_topics.extend(lesson_deferred)
+                    record = {**record, "deferred_topics": deferred_topics}
+                module = draft_course.modules[current_index]
+                lesson_titles = [lesson.lesson_title for lesson in module.lessons]
+                pending_question = lesson_scope_question(
+                    module.module_title,
+                    lesson_titles,
+                    knowledge_level=self._decision_knowledge_level(signals, answer),
+                )
+                pending_kind = CourseBriefQuestionKind.LESSON_SCOPE.value
+                pending_answer_controls = CourseBriefAnswerControls.TEXT.value
+                decision_phase = PHASE_LESSON_SCOPE
+                action = CourseBriefInterviewAction.ASK
+        else:
+            stored_structure_change = None
+            decision_phase = PHASE_MODULE_GATE
 
         user_message = self._format_answer_message(answer)
         updated_history = [*history, {"role": "user", "content": user_message}]
@@ -415,6 +498,8 @@ class CourseBriefService:
             "total_questions": len(draft_course.modules),
             "preliminary_outline": self._dump_model(draft_course),
         }
+        if "deferred_topics" in record and record.get("deferred_topics") is not None:
+            updates["deferred_topics"] = record["deferred_topics"]
         if action == CourseBriefInterviewAction.ASK:
             updates["current_question_index"] = current_index
             assistant_message = pending_question or default_question_for_missing(
@@ -953,74 +1038,91 @@ class CourseBriefService:
         topic: str,
         depth: Optional[str],
         knowledge_level: Optional[str],
-    ) -> Course:
-        """Гарантирует черновик уроков модуля перед фазой lesson_scope."""
-        module = draft_course.modules[module_index]
-        if module.lessons:
-            return draft_course
+    ) -> tuple[Course, List[Dict[str, Any]]]:
+        """Гарантирует черновик уроков модуля и убирает дубли с других блоков.
 
+        Returns:
+            Обновлённый курс и список deferred_topics для «родных» модулей дублей.
+        """
+        module = draft_course.modules[module_index]
         other_topics = collect_other_module_topics(draft_course.modules, module.module_number)
-        other_text = "\n".join(
-            f"- {item['title']} ({item['module_title']})" for item in other_topics[:20]
-        ) or "- нет"
-        call_kwargs: Dict[str, Any] = {
-            "system_prompt": COURSE_BRIEF_LESSON_DRAFT_SYSTEM_PROMPT,
-            "user_prompt": COURSE_BRIEF_LESSON_DRAFT_PROMPT_TEMPLATE.format(
-                topic=topic,
-                module_title=module.module_title,
-                module_goal=module.module_goal,
-                depth=depth or "standard",
-                knowledge_level=knowledge_level or "middle",
-                current_lessons="- нет",
-                other_topics=other_text,
-            ),
-            "temperature": 0.3,
-            "max_tokens": 1200,
-        }
-        lessons: List[Lesson] = []
-        try:
-            raw = self._get_ai_client().call_ai_json(**call_kwargs)
-            items = raw.get("lessons") if isinstance(raw, dict) else None
-            if isinstance(items, list):
-                for item in items[:6]:
-                    if not isinstance(item, dict) or not item.get("lesson_title"):
-                        continue
-                    lessons.append(
-                        Lesson(
-                            lesson_title=str(item["lesson_title"]).strip(),
-                            lesson_goal=str(item.get("lesson_goal") or "Разобрать тему.").strip(),
-                            content_outline=item.get("content_outline")
-                            if isinstance(item.get("content_outline"), list)
-                            else ["Контекст", "Практика"],
-                            assessment=str(item.get("assessment") or "Практика"),
-                            format=LessonFormat(item["format"])
-                            if item.get("format") in {f.value for f in LessonFormat}
-                            else LessonFormat.THEORY,
-                            estimated_time_minutes=int(item.get("estimated_time_minutes") or 45),
-                        )
-                    )
-        except Exception:
-            logger.warning("Не удалось сгенерировать черновик уроков, используем шаблон")
+        lessons: List[Lesson] = [self._copy_model(lesson) for lesson in module.lessons]
 
         if not lessons:
-            lessons = [
-                Lesson(
-                    lesson_title=f"Основы: {module.module_title}",
-                    lesson_goal="Понять ключевые понятия блока.",
-                    content_outline=["Контекст", "Термины", "Пример"],
-                    assessment="Короткая практика",
-                    format=LessonFormat.THEORY,
-                    estimated_time_minutes=30,
+            other_text = "\n".join(
+                f"- {item['title']} ({item['module_title']})" for item in other_topics[:20]
+            ) or "- нет"
+            call_kwargs: Dict[str, Any] = {
+                "system_prompt": COURSE_BRIEF_LESSON_DRAFT_SYSTEM_PROMPT,
+                "user_prompt": COURSE_BRIEF_LESSON_DRAFT_PROMPT_TEMPLATE.format(
+                    topic=topic,
+                    module_title=module.module_title,
+                    module_goal=module.module_goal,
+                    depth=depth or "standard",
+                    knowledge_level=knowledge_level or "middle",
+                    current_lessons="- нет",
+                    other_topics=other_text,
                 ),
-                Lesson(
-                    lesson_title=f"Практика: {module.module_title}",
-                    lesson_goal="Применить материал блока.",
-                    content_outline=["Задание", "Разбор", "Самопроверка"],
-                    assessment="Практическое задание",
-                    format=LessonFormat.PRACTICE,
-                    estimated_time_minutes=45,
-                ),
-            ]
+                "temperature": 0.3,
+                "max_tokens": 1200,
+            }
+            try:
+                raw = self._get_ai_client().call_ai_json(**call_kwargs)
+                items = raw.get("lessons") if isinstance(raw, dict) else None
+                if isinstance(items, list):
+                    for item in items[:6]:
+                        if not isinstance(item, dict) or not item.get("lesson_title"):
+                            continue
+                        lessons.append(
+                            Lesson(
+                                lesson_title=str(item["lesson_title"]).strip(),
+                                lesson_goal=str(
+                                    item.get("lesson_goal") or "Разобрать тему."
+                                ).strip(),
+                                content_outline=item.get("content_outline")
+                                if isinstance(item.get("content_outline"), list)
+                                else ["Контекст", "Практика"],
+                                assessment=str(item.get("assessment") or "Практика"),
+                                format=LessonFormat(item["format"])
+                                if item.get("format") in {f.value for f in LessonFormat}
+                                else LessonFormat.THEORY,
+                                estimated_time_minutes=int(
+                                    item.get("estimated_time_minutes") or 45
+                                ),
+                            )
+                        )
+            except Exception:
+                logger.warning("Не удалось сгенерировать черновик уроков, используем шаблон")
+
+            if not lessons:
+                lessons = self._template_module_lessons(module.module_title)
+
+        lessons, deferred = self._filter_duplicate_lessons(
+            lessons,
+            other_topics,
+            current_module_number=module.module_number,
+            current_module_title=module.module_title,
+        )
+        if not lessons:
+            lessons = self._template_module_lessons(module.module_title)
+            lessons, deferred_retry = self._filter_duplicate_lessons(
+                lessons,
+                other_topics,
+                current_module_number=module.module_number,
+                current_module_title=module.module_title,
+            )
+            deferred.extend(deferred_retry)
+            if not lessons:
+                lessons = [
+                    Lesson(
+                        lesson_title=f"Специфика: {module.module_title}",
+                        lesson_goal=f"Разобрать материал блока «{module.module_title}».",
+                        content_outline=["Контекст", "Практика"],
+                        assessment="Практика",
+                        format=LessonFormat.THEORY,
+                        estimated_time_minutes=40,
+                    )
+                ]
 
         modules = list(draft_course.modules)
         updated = self._copy_model(module)
@@ -1028,7 +1130,74 @@ class CourseBriefService:
         modules[module_index] = updated
         payload = self._dump_model(draft_course)
         payload["modules"] = [self._dump_model(item) for item in modules]
-        return Course(**payload)
+        return Course(**payload), deferred
+
+    @staticmethod
+    def _template_module_lessons(module_title: str) -> List[Lesson]:
+        """Минимальный шаблон уроков, если модель недоступна."""
+        return [
+            Lesson(
+                lesson_title=f"Основы: {module_title}",
+                lesson_goal="Понять ключевые понятия блока.",
+                content_outline=["Контекст", "Термины", "Пример"],
+                assessment="Короткая практика",
+                format=LessonFormat.THEORY,
+                estimated_time_minutes=30,
+            ),
+            Lesson(
+                lesson_title=f"Практика: {module_title}",
+                lesson_goal="Применить материал блока.",
+                content_outline=["Задание", "Разбор", "Самопроверка"],
+                assessment="Практическое задание",
+                format=LessonFormat.PRACTICE,
+                estimated_time_minutes=45,
+            ),
+        ]
+
+    @staticmethod
+    def _filter_duplicate_lessons(
+        lessons: List[Lesson],
+        other_topics: List[Dict[str, Any]],
+        *,
+        current_module_number: int,
+        current_module_title: str,
+    ) -> tuple[List[Lesson], List[Dict[str, Any]]]:
+        """Убирает уроки, уже присутствующие в других модулях."""
+        titles = [lesson.lesson_title for lesson in lessons]
+        duplicates = find_duplicate_topics(titles, other_topics)
+        if not duplicates:
+            return lessons, []
+
+        duplicate_keys = {
+            (item.get("requested") or "").strip().lower() for item in duplicates
+        }
+        kept = [
+            lesson
+            for lesson in lessons
+            if (lesson.lesson_title or "").strip().lower() not in duplicate_keys
+        ]
+        deferred: List[Dict[str, Any]] = []
+        for item in duplicates:
+            target_number = item.get("module_number")
+            if not isinstance(target_number, int):
+                continue
+            deferred.append(
+                {
+                    "module_number": target_number,
+                    "title": item.get("existing_title") or item.get("requested"),
+                    "from_module_number": current_module_number,
+                    "from_module_title": current_module_title,
+                    "note": "Тема уже есть в другом блоке; убрана из черновика уроков.",
+                }
+            )
+        if deferred:
+            logger.info(
+                "✅ Dedup уроков модуля «%s»: убрано %s, осталось %s",
+                current_module_title,
+                len(deferred),
+                len(kept),
+            )
+        return kept, deferred
 
     def _append_extra_lessons(
         self,
@@ -1213,7 +1382,10 @@ class CourseBriefService:
         if not revised_goal:
             raise CourseBriefInvalidStateError("Опишите новую цель курса текстом.")
 
-        draft_course = self._generate_draft_course(record["topic"], revised_goal)
+        draft_course = self._generate_draft_course(
+            record["topic"],
+            brief_meta=self._brief_meta_from_record(record, course_goals=revised_goal),
+        )
         updates: Dict[str, Any] = {
             "status": CourseBriefStatus.QUESTIONING.value,
             "preliminary_outline": self._dump_model(draft_course),
@@ -1222,6 +1394,8 @@ class CourseBriefService:
             "total_questions": len(draft_course.modules),
             "final_outline": None,
             "revision": current_revision + 1,
+            "deferred_topics": [],
+            "brief_meta": self._brief_meta_from_record(record, course_goals=revised_goal),
         }
         if not self._storage.update_course_brief(
             record["id"],
@@ -1247,16 +1421,23 @@ class CourseBriefService:
         )
         return self._build_response({**record, **updates})
 
-    def _generate_draft_course(self, topic: str, course_goals: str) -> Course:
+    def _generate_draft_course(
+        self,
+        topic: str,
+        course_goals: Optional[str] = None,
+        *,
+        brief_meta: Optional[Dict[str, Any]] = None,
+    ) -> Course:
         """Создаёт и проверяет новый скрытый черновик для старта или revise_goal."""
+        meta = brief_meta or self._normalize_brief_meta(course_goals=course_goals)
         try:
             draft_data = self._get_ai_client().generate_course_structure(
                 topic=topic,
-                audience_level=self.DEFAULT_AUDIENCE_LEVEL,
-                module_count=self.DEFAULT_MODULE_COUNT,
-                course_goals=course_goals,
-                duration_weeks=self.DEFAULT_DURATION_WEEKS,
-                hours_per_week=self.DEFAULT_HOURS_PER_WEEK,
+                audience_level=meta["audience_level"],
+                module_count=meta["module_count"],
+                course_goals=meta["course_goals"],
+                duration_weeks=meta["duration_weeks"],
+                hours_per_week=meta["hours_per_week"],
             )
         except Exception as error:
             logger.exception("Не удалось сформировать черновик структуры курса")
@@ -1271,6 +1452,76 @@ class CourseBriefService:
         if not draft_course.modules:
             raise CourseBriefGenerationError("В черновике структуры нет разделов для уточнения")
         return draft_course
+
+    def _normalize_brief_meta(
+        self,
+        *,
+        course_goals: Optional[str] = None,
+        audience_level: Optional[str] = None,
+        module_count: Optional[int] = None,
+        duration_weeks: Optional[int] = None,
+        hours_per_week: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Нормализует pre-brief параметры с дефолтами сервиса."""
+        goals = (course_goals or "").strip() or (
+            "Цели и глубина проработки уточняются в диалоге."
+        )
+        level = (audience_level or "").strip().lower() or self.DEFAULT_AUDIENCE_LEVEL
+        if level not in {item.value for item in DifficultyLevel}:
+            level = self.DEFAULT_AUDIENCE_LEVEL
+        try:
+            modules = int(module_count) if module_count is not None else self.DEFAULT_MODULE_COUNT
+        except (TypeError, ValueError):
+            modules = self.DEFAULT_MODULE_COUNT
+        modules = max(2, min(12, modules))
+        try:
+            weeks = (
+                int(duration_weeks)
+                if duration_weeks is not None
+                else self.DEFAULT_DURATION_WEEKS
+            )
+        except (TypeError, ValueError):
+            weeks = self.DEFAULT_DURATION_WEEKS
+        weeks = max(1, min(52, weeks))
+        try:
+            hours = (
+                int(hours_per_week)
+                if hours_per_week is not None
+                else self.DEFAULT_HOURS_PER_WEEK
+            )
+        except (TypeError, ValueError):
+            hours = self.DEFAULT_HOURS_PER_WEEK
+        hours = max(1, min(40, hours))
+        return {
+            "course_goals": goals[:1000],
+            "audience_level": level,
+            "module_count": modules,
+            "duration_weeks": weeks,
+            "hours_per_week": hours,
+        }
+
+    def _brief_meta_from_record(
+        self,
+        record: Dict[str, Any],
+        *,
+        course_goals: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Достаёт сохранённые pre-brief параметры и при необходимости обновляет цель."""
+        raw = record.get("brief_meta")
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                raw = {}
+        if not isinstance(raw, dict):
+            raw = {}
+        return self._normalize_brief_meta(
+            course_goals=course_goals if course_goals is not None else raw.get("course_goals"),
+            audience_level=raw.get("audience_level"),
+            module_count=raw.get("module_count"),
+            duration_weeks=raw.get("duration_weeks"),
+            hours_per_week=raw.get("hours_per_week"),
+        )
 
     @staticmethod
     def _decision_for_module(
@@ -1321,8 +1572,14 @@ class CourseBriefService:
     def _structure_followup_count(pending_change: Optional[Dict[str, Any]]) -> int:
         if not isinstance(pending_change, dict):
             return 0
+        kind = pending_change.get("kind")
+        limit = (
+            MAX_SPLIT_MODULE_FOLLOWUPS
+            if kind == CourseBriefStructureChangeKind.SPLIT_MODULE.value
+            else MAX_ADD_MODULE_FOLLOWUPS
+        )
         try:
-            return max(0, min(int(pending_change.get("followup_count") or 0), MAX_ADD_MODULE_FOLLOWUPS))
+            return max(0, min(int(pending_change.get("followup_count") or 0), limit))
         except (TypeError, ValueError):
             return 0
 
@@ -1383,6 +1640,65 @@ class CourseBriefService:
         payload = self._dump_model(draft_course)
         payload["modules"] = [self._dump_model(item) for item in modules]
         logger.info("✅ В черновик добавлен раздел «%s», вопросов: %s", title, len(modules))
+        return Course(**payload)
+
+    def _split_current_module(
+        self,
+        draft_course: Course,
+        current_index: int,
+        *,
+        first_title: str,
+        second_title: str,
+        topic: str,
+    ) -> Course:
+        """Заменяет текущий модуль двумя блоками и перенумеровывает черновик."""
+        current = draft_course.modules[current_index]
+        first = first_title.strip() or "Блок 1"
+        second = second_title.strip() or "Блок 2"
+        left_lessons = list(current.lessons[: max(1, len(current.lessons) // 2)]) or [
+            Lesson(
+                lesson_title=f"Основы: {first}",
+                lesson_goal=f"Разобрать тему «{first}».",
+                content_outline=["Контекст", "Ключевые понятия", "Пример"],
+                assessment="Короткая практика",
+                format=LessonFormat.THEORY,
+                estimated_time_minutes=30,
+            )
+        ]
+        right_lessons = list(current.lessons[len(left_lessons) :]) or [
+            Lesson(
+                lesson_title=f"Основы: {second}",
+                lesson_goal=f"Разобрать тему «{second}».",
+                content_outline=["Контекст", "Ключевые понятия", "Пример"],
+                assessment="Короткая практика",
+                format=LessonFormat.THEORY,
+                estimated_time_minutes=30,
+            )
+        ]
+        module_a = Module(
+            module_number=current_index + 1,
+            module_title=first[:120],
+            module_goal=f"Сформировать основу по теме «{first}» в курсе «{topic}».",
+            lessons=[self._copy_model(lesson) for lesson in left_lessons],
+        )
+        module_b = Module(
+            module_number=current_index + 2,
+            module_title=second[:120],
+            module_goal=f"Сформировать основу по теме «{second}» в курсе «{topic}».",
+            lessons=[self._copy_model(lesson) for lesson in right_lessons],
+        )
+        modules = list(draft_course.modules)
+        modules[current_index : current_index + 1] = [module_a, module_b]
+        for index, item in enumerate(modules, start=1):
+            item.module_number = index
+        payload = self._dump_model(draft_course)
+        payload["modules"] = [self._dump_model(item) for item in modules]
+        logger.info(
+            "✅ Блок разделён на «%s» и «%s», вопросов: %s",
+            first,
+            second,
+            len(modules),
+        )
         return Course(**payload)
 
     @staticmethod
