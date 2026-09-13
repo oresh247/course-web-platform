@@ -62,6 +62,7 @@ from backend.services.course_brief_interview import (
     choose_split_module_action,
     collect_other_module_topics,
     comment_declines_extras,
+    comment_has_exclude_intent,
     confidence_from_signals,
     course_brief_interview_json_schema,
     clarifying_reply_for_lessons,
@@ -617,10 +618,13 @@ class CourseBriefService:
 
         excluded = parse_excluded_lessons_from_comment(comment, lesson_titles)
         scope_value = "partial" if excluded else "whole"
-        if comment and any(
-            token in comment.lower()
-            for token in ("убр", "исключ", "замен", "только ", "кроме")
-        ) and not excluded and not session_structure:
+        unrecognized_exclude = bool(
+            comment
+            and comment_has_exclude_intent(comment)
+            and not excluded
+            and not session_structure
+        )
+        if unrecognized_exclude:
             # Нужно уточнение: назвал правки, но не сопоставили с уроками.
             lesson_followups = int((current_decision or {}).get("lesson_followup_count") or 0)
             if lesson_followups < MAX_LESSON_PHASE_FOLLOWUPS:
@@ -672,6 +676,12 @@ class CourseBriefService:
             record,
             module.module_number,
         )
+        exclude_miss_notice = (
+            " Не смог распознать, какой урок убрать — оставляю черновик как есть. "
+            "Уточните название точнее, если нужно изменить состав."
+            if unrecognized_exclude
+            else ""
+        )
         # Если состав уже подтверждён и пользователь явно отказался от добавок —
         # не спрашиваем то же самое второй раз (кроме отложенных тем с других блоков).
         if comment_declines_extras(comment) and not deferred_for_module:
@@ -696,6 +706,7 @@ class CourseBriefService:
                 deferred_topics=None,
                 finish_course=is_last and not session_structure,
                 pending_structure_change=session_structure,
+                assistant_suffix=exclude_miss_notice,
             )
 
         other_topics = collect_other_module_topics(draft_course.modules, module.module_number)
@@ -728,6 +739,7 @@ class CourseBriefService:
             finalize=False,
             deferred_topics=None,
             pending_structure_change=session_structure,
+            assistant_suffix=exclude_miss_notice,
         )
 
     def _answer_lesson_extras_phase(

@@ -346,14 +346,14 @@ UI [`CourseGeneratorPage.jsx`](../frontend/src/pages/CourseGeneratorPage.jsx) с
 
 На ответе:
 
-- [`parse_excluded_lessons_from_comment`](../backend/services/course_brief_interview.py) → `scope=partial` или `whole`;
+- [`parse_excluded_lessons_from_comment`](../backend/services/course_brief_interview.py) → `scope=partial` или `whole`; сопоставление не только по полному заголовку, но и по ключевым словам внутри названия (например «убери PyQt» → урок с PyQt в скобках). Intent: [`comment_has_exclude_intent`](../backend/services/course_brief_interview.py) (`убр`/`убер`/`исключ`/…);
 - [`build_lesson_decisions`](../backend/services/course_brief_interview.py) → `decision.lesson_decisions`;
 - сигнал `scope` → `confirmed`;
 - при clarifying-вопросе — ответ из черновика + `lesson_promises`, фаза не меняется;
 - если [`comment_declines_extras`](../backend/services/course_brief_interview.py) — сразу `done` (без extras);
 - иначе переход к `lesson_extras`.
 
-До **2** уточнений (`MAX_LESSON_PHASE_FOLLOWUPS`), если пользователь сказал «убрать/заменить», но названия не сопоставились.
+До **2** уточнений (`MAX_LESSON_PHASE_FOLLOWUPS`), если пользователь сказал «убрать/заменить», но названия не сопоставились. После лимита — явный `assistant_suffix`, что исключение не распознано, черновик оставлен как есть.
 
 ### 6.3. Фаза `lesson_extras`
 

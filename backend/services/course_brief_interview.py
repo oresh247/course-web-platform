@@ -936,24 +936,100 @@ def should_promote_topic_to_module(
     return mentions >= 1
 
 
+EXCLUDE_INTENT_TOKENS = (
+    "убр",
+    "убер",
+    "исключ",
+    "замен",
+    "только ",
+    "кроме",
+    "выкин",
+    "выброс",
+    "не нужен",
+    "не нужна",
+    "не нужно",
+    "не надо",
+    "без ",
+)
+
+_EXCLUDE_INTENT_NOISE = {
+    "убери",
+    "уберите",
+    "убрать",
+    "убрала",
+    "убрал",
+    "уберём",
+    "уберем",
+    "исключи",
+    "исключите",
+    "исключить",
+    "исключаю",
+    "замени",
+    "замените",
+    "заменить",
+    "выкин",
+    "выкинь",
+    "выкиньте",
+    "выброси",
+    "урок",
+    "уроки",
+    "тему",
+    "темы",
+    "этот",
+    "эту",
+    "эти",
+    "пожалуйста",
+}
+
+
+def comment_has_exclude_intent(comment: Optional[str]) -> bool:
+    """Пользователь явно просит убрать/исключить что-то из черновика."""
+    text = (comment or "").strip().lower()
+    if not text:
+        return False
+    return any(token in text for token in EXCLUDE_INTENT_TOKENS)
+
+
 def parse_excluded_lessons_from_comment(
     comment: Optional[str],
     lesson_titles: Iterable[str],
 ) -> List[str]:
-    """Грубо определяет, какие уроки пользователь просит убрать."""
+    """Определяет, какие уроки пользователь просит убрать.
+
+    Сопоставление по полному названию, значимым токенам и ключевым словам
+    внутри заголовка (например «PyQt» в «…(Tkinter, PyQt, Kivy)»).
+    """
     text = (comment or "").strip().lower()
     if not text:
         return []
-    if any(token in text for token in ("все оставить", "оставить все", "все уроки", "целиком")):
+    if any(
+        token in text
+        for token in ("все оставить", "оставить все", "все уроки", "целиком")
+    ):
         return []
+    if not comment_has_exclude_intent(text):
+        return []
+
+    comment_tokens = significant_topic_tokens(text)
+    raw_tokens = {
+        token
+        for token in re.findall(r"[a-zа-яё0-9]+", text)
+        if len(token) >= 3 and token not in _EXCLUDE_INTENT_NOISE
+    }
+    needles = comment_tokens | raw_tokens
+
     excluded: List[str] = []
     for title in lesson_titles:
         normalized = (title or "").strip()
         if not normalized:
             continue
-        if normalized.lower() in text and any(
-            token in text for token in ("убр", "исключ", "не нуж", "без ", "убери")
-        ):
+        title_lower = normalized.lower()
+        matched = title_lower in text
+        if not matched:
+            matched = any(needle in title_lower for needle in needles)
+        if not matched:
+            matched = titles_are_similar(text, title_lower)
+        if matched:
             excluded.append(normalized)
     return excluded
 

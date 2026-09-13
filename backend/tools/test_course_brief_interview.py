@@ -387,7 +387,9 @@ def test_comment_declines_extras_does_not_match_urok_substring():
     """«ок» внутри «урок» не должно пропускать extras."""
     from backend.services.course_brief_interview import (
         comment_declines_extras,
+        comment_has_exclude_intent,
         lesson_scope_question,
+        parse_excluded_lessons_from_comment,
     )
 
     assert comment_declines_extras("ок") is True
@@ -401,6 +403,91 @@ def test_comment_declines_extras_does_not_match_urok_substring():
     for title in many:
         assert f"«{title}»" in text
     assert "Всего в черновике: 9" in text
+
+    titles = [
+        "Обзор UI фреймворков Python (Tkinter, PyQt, Kivy)",
+        "Установка и настройка выбранного фреймворка",
+        "Базовые виджеты и макеты (Layout)",
+    ]
+    assert comment_has_exclude_intent("убери PyQt") is True
+    assert comment_has_exclude_intent("исключи PyQt") is True
+    excluded = parse_excluded_lessons_from_comment("убери PyQt", titles)
+    assert excluded == [titles[0]]
+    excluded2 = parse_excluded_lessons_from_comment("исключи PyQt", titles)
+    assert excluded2 == [titles[0]]
+
+
+def test_exclude_keyword_from_lesson_scope_marks_partial():
+    """«убери PyQt» на lesson_scope исключает урок по ключевому слову в названии."""
+    ai = InterviewAI(
+        [
+            {
+                "signals": _signals(
+                    _confirmed("include"),
+                    _confirmed("standard"),
+                    _confirmed("middle"),
+                    _missing(),
+                    _missing(),
+                ),
+                "action": "next_module",
+                "follow_up_question": None,
+            },
+        ]
+    )
+    storage = MemoryStorage()
+    service = CourseBriefService(ai_client=ai, storage=storage)
+    started = service.start("Тема", module_count=2)
+    outline = storage.records[started.session_id]["preliminary_outline"]
+    outline["modules"][0]["lessons"] = [
+        {
+            "lesson_title": "Обзор UI фреймворков Python (Tkinter, PyQt, Kivy)",
+            "lesson_goal": "Выбрать фреймворк.",
+            "content_outline": ["Обзор"],
+            "assessment": "Практика",
+            "format": "theory",
+            "estimated_time_minutes": 30,
+        },
+        {
+            "lesson_title": "Установка и настройка выбранного фреймворка",
+            "lesson_goal": "Настроить окружение.",
+            "content_outline": ["Установка"],
+            "assessment": "Практика",
+            "format": "practice",
+            "estimated_time_minutes": 30,
+        },
+        {
+            "lesson_title": "Базовые виджеты и макеты (Layout)",
+            "lesson_goal": "Собрать макет.",
+            "content_outline": ["Виджеты"],
+            "assessment": "Практика",
+            "format": "practice",
+            "estimated_time_minutes": 30,
+        },
+    ]
+    storage.records[started.session_id]["preliminary_outline"] = outline
+
+    scope = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=started.revision,
+            depth=CourseBriefDepth.STANDARD,
+            knowledge_level=DifficultyLevel.MIDDLE,
+        ),
+    )
+    assert scope.question.kind == CourseBriefQuestionKind.LESSON_SCOPE
+    after = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=scope.revision,
+            comment="убери PyQt",
+        ),
+    )
+    assert after.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS
+    decisions = storage.records[started.session_id]["decisions"][0]["lesson_decisions"]
+    by_title = {item["title"]: item["include"] for item in decisions}
+    assert by_title[outline["modules"][0]["lessons"][0]["lesson_title"]] is False
+    assert by_title[outline["modules"][0]["lessons"][1]["lesson_title"]] is True
+    assert storage.records[started.session_id]["decisions"][0]["signals"]["scope"]["value"] == "partial"
 
 
 def test_demo_fallback_splits_module_from_comment():
