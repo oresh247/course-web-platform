@@ -801,8 +801,7 @@ function CourseGeneratorPage() {
               ) : preBriefStep === 'level' ? (
                 <div className="course-generator-page__answer-form">
                   <div className="course-generator-page__question-meta">
-                    <span>Перед черновиком</span>
-                    <strong>{PREBRIEF_LEVEL_QUESTION}</strong>
+                    <span>Перед черновиком · уровень аудитории</span>
                   </div>
                   <fieldset disabled={isSubmitting}>
                     <legend>Уровень аудитории</legend>
@@ -824,8 +823,7 @@ function CourseGeneratorPage() {
               ) : (
                 <div className="course-generator-page__answer-form">
                   <div className="course-generator-page__question-meta">
-                    <span>Перед черновиком</span>
-                    <strong>{PREBRIEF_VOLUME_QUESTION}</strong>
+                    <span>Перед черновиком · объём черновика</span>
                   </div>
                   <fieldset disabled={isSubmitting}>
                     <legend>Объём черновика</legend>
@@ -855,7 +853,6 @@ function CourseGeneratorPage() {
                       : 'Следующее уточнение')}
                     {questionLabel && questionNumber && questionTotal ? ` · раздел ${questionNumber} из ${questionTotal}` : ''}
                   </span>
-                  <strong>{question?.text || 'Насколько подробно нужен этот раздел?'}</strong>
                 </div>
 
                 {!isGoalRevision && showChoiceControls && (

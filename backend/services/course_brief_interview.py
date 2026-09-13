@@ -1307,8 +1307,18 @@ def infer_structure_request_from_comment(comment: Optional[str]) -> CourseBriefS
 
     match = _ADD_MODULE_PATTERN.search(text)
     lowered = text.lower()
+    # Без явного «модуль/раздел» не считаем ADD_MODULE: иначе «добавь урок/тему»
+    # ложно уходит в новый раздел курса.
     if match is None and not any(
-        token in lowered for token in ("добав", "новый раздел", "новый модуль")
+        token in lowered
+        for token in (
+            "новый раздел",
+            "новый модуль",
+            "отдельный раздел",
+            "отдельный модуль",
+            "отдельным разделом",
+            "отдельным модулем",
+        )
     ):
         return CourseBriefStructureRequest()
     title = _clean_structure_title(match.group(1)) if match else None

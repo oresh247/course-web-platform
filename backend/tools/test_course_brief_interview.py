@@ -602,12 +602,25 @@ def test_lesson_draft_dedups_topics_from_other_modules():
 
 def test_add_module_from_lesson_scope_is_queued_and_applied():
     """«Добавь модуль» на lesson_scope ставится в очередь и применяется после блока."""
-    from backend.services.course_brief_interview import titles_are_similar
+    from backend.services.course_brief_interview import (
+        infer_structure_request_from_comment,
+        titles_are_similar,
+        CourseBriefStructureChangeKind,
+    )
 
     assert titles_are_similar(
         "Безопасность данных и коммуникаций",
         "Безопасность логики и данных",
     )
+    # «Добавь тему/урок» без слова модуль/раздел — не ADD_MODULE.
+    lesson_only = infer_structure_request_from_comment(
+        "Добавь изменение событий в календаре"
+    )
+    assert lesson_only.kind == CourseBriefStructureChangeKind.NONE
+    real_module = infer_structure_request_from_comment(
+        "добавь модуль про безопасность"
+    )
+    assert real_module.kind == CourseBriefStructureChangeKind.ADD_MODULE
 
     ai = InterviewAI(
         [
@@ -678,21 +691,10 @@ def test_add_module_from_lesson_scope_is_queued_and_applied():
         assert any("безопасн" in title.lower() for title in titles)
 
 
-def test_repeated_extra_topic_promotes_to_module_instead_of_second_lesson():
-    """Повтор похожей extras-темы во втором блоке → очередь add_module, не второй урок."""
+def test_session_structure_ask_updates_response_question_text():
+    """После ответа на название раздела API отдаёт следующий вопрос, а не старый."""
     ai = InterviewAI(
         [
-            {
-                "signals": _signals(
-                    _confirmed("include"),
-                    _confirmed("standard"),
-                    _confirmed("middle"),
-                    _missing(),
-                    _missing(),
-                ),
-                "action": "next_module",
-                "follow_up_question": None,
-            },
             {
                 "signals": _signals(
                     _confirmed("include"),
@@ -709,8 +711,7 @@ def test_repeated_extra_topic_promotes_to_module_instead_of_second_lesson():
     storage = MemoryStorage()
     service = CourseBriefService(ai_client=ai, storage=storage)
     started = service.start("Тема", module_count=2)
-
-    scope1 = service.answer(
+    scope = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
             expected_revision=started.revision,
@@ -718,78 +719,165 @@ def test_repeated_extra_topic_promotes_to_module_instead_of_second_lesson():
             knowledge_level=DifficultyLevel.MIDDLE,
         ),
     )
-    extras1 = service.answer(
+    # Без слова «модуль» extras-тема не должна уйти в add_module.
+    extras = service.answer(
         started.session_id,
         CourseBriefAnswerRequest(
-            expected_revision=scope1.revision,
-            comment="нужен урок про безопасность",
+            expected_revision=scope.revision,
+            comment="Оставить все",
         ),
     )
-    # Первый блок: тема ещё нигде нет → extras finalize может спросить extras или добавить.
-    if extras1.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS:
-        next1 = service.answer(
-            started.session_id,
-            CourseBriefAnswerRequest(
-                expected_revision=extras1.revision,
-                comment="безопасность",
-            ),
-        )
-    else:
-        next1 = extras1
+    # Принудительно ставим сессионную очередь как после ложного срабатывания title=None.
+    storage.records[started.session_id]["pending_structure_change"] = {
+        "kind": "add_module",
+        "title": None,
+        "purpose": None,
+        "second_title": None,
+        "ready": False,
+        "evidence": ["Добавьте модуль"],
+        "followup_count": 1,
+        "awaiting_answer": True,
+        "anchor_module_number": 1,
+    }
+    decision = storage.records[started.session_id]["decisions"][0]
+    decision["finalized"] = True
+    decision["phase"] = "done"
+    decision["pending_question"] = "Как назвать новый раздел, который вы хотите добавить в курс?"
+    decision["pending_question_kind"] = CourseBriefQuestionKind.ADD_MODULE.value
+    storage.records[started.session_id]["current_question_index"] = 0
+    storage.records[started.session_id]["revision"] = extras.revision
 
-    # Дойти до второго модуля.
-    while next1.question and next1.question.kind != CourseBriefQuestionKind.MODULE:
-        next1 = service.answer(
-            started.session_id,
-            CourseBriefAnswerRequest(
-                expected_revision=next1.revision,
-                comment="ничего",
-            ),
-        )
-        if next1.status.value == "completed":
-            break
-    if next1.question and next1.question.number == 1:
-        # ещё на первом — ответим чтобы перейти
-        if next1.question.kind == CourseBriefQuestionKind.ADD_MODULE:
-            next1 = service.answer(
-                started.session_id,
-                CourseBriefAnswerRequest(
-                    expected_revision=next1.revision,
-                    comment="отдельный блок про безопасность агента",
-                ),
-            )
+    named = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=extras.revision,
+            comment="Изменение событий календаря",
+        ),
+    )
+    assert named.question is not None
+    assert named.question.kind == CourseBriefQuestionKind.ADD_MODULE
+    assert "Как назвать" not in named.question.text
+    assert "Что должно войти" in named.question.text
+    decision = storage.records[started.session_id]["decisions"][0]
+    assert decision.get("pending_question") == named.question.text
 
-    scope2 = next1
-    if scope2.question and scope2.question.kind == CourseBriefQuestionKind.MODULE:
-        scope2 = service.answer(
-            started.session_id,
-            CourseBriefAnswerRequest(
-                expected_revision=scope2.revision,
-                depth=CourseBriefDepth.STANDARD,
-                knowledge_level=DifficultyLevel.MIDDLE,
-            ),
-        )
-    if scope2.question and scope2.question.kind == CourseBriefQuestionKind.LESSON_SCOPE:
-        after = service.answer(
-            started.session_id,
-            CourseBriefAnswerRequest(
-                expected_revision=scope2.revision,
-                comment="добавь безопасность логики",
-            ),
-        )
-        # Либо extras, либо сразу структура/следующий вопрос.
-        if after.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS:
-            after = service.answer(
-                started.session_id,
-                CourseBriefAnswerRequest(
-                    expected_revision=after.revision,
-                    comment="безопасность логики и данных",
+
+def test_repeated_extra_topic_promotes_to_module_instead_of_second_lesson():
+    """Повтор похожей extras-темы во втором блоке → очередь add_module, не второй урок."""
+    from backend.services.course_brief_interview import should_promote_topic_to_module
+
+    ai = InterviewAI(
+        [
+            {
+                "signals": _signals(
+                    _confirmed("include"),
+                    _confirmed("standard"),
+                    _confirmed("middle"),
+                    _missing(),
+                    _missing(),
                 ),
-            )
-        pending = storage.records[started.session_id].get("pending_structure_change")
-        assert after.question.kind in {
-            CourseBriefQuestionKind.ADD_MODULE,
-            CourseBriefQuestionKind.MODULE,
-        } or pending
-        if after.question.kind != CourseBriefQuestionKind.ADD_MODULE and pending:
-            assert pending.get("kind") == "add_module"
+                "action": "next_module",
+                "follow_up_question": None,
+            },
+        ]
+    )
+    storage = MemoryStorage()
+    service = CourseBriefService(ai_client=ai, storage=storage)
+    started = service.start("Тема", module_count=2)
+    outline = storage.records[started.session_id]["preliminary_outline"]
+    # В первом модуле уже есть похожая тема — повтор во втором должен промоутиться.
+    outline["modules"][0]["lessons"] = [
+        {
+            "lesson_title": "Безопасность данных и коммуникаций",
+            "lesson_goal": "Защита данных.",
+            "content_outline": ["Контекст"],
+            "assessment": "Практика",
+            "format": "theory",
+            "estimated_time_minutes": 30,
+        }
+    ]
+    outline["modules"][1]["lessons"] = [
+        {
+            "lesson_title": "Логика агента",
+            "lesson_goal": "Решения.",
+            "content_outline": ["Контекст"],
+            "assessment": "Практика",
+            "format": "theory",
+            "estimated_time_minutes": 30,
+        }
+    ]
+    storage.records[started.session_id]["preliminary_outline"] = outline
+    storage.records[started.session_id]["theme_mentions"] = [
+        {
+            "title": "Безопасность данных и коммуникаций",
+            "module_number": 1,
+            "module_title": "Первый раздел",
+        }
+    ]
+    storage.records[started.session_id]["current_question_index"] = 1
+    storage.records[started.session_id]["decisions"] = [
+        {
+            "module_number": 1,
+            "module_title": "Первый раздел",
+            "finalized": True,
+            "phase": "done",
+            "signals": _signals(
+                _confirmed("include"),
+                _confirmed("standard"),
+                _confirmed("middle"),
+                _missing(),
+                _confirmed("whole"),
+            ),
+        }
+    ]
+
+    assert should_promote_topic_to_module(
+        "безопасность логики и данных",
+        [
+            type("M", (), {"module_number": 1, "lessons": [
+                type("L", (), {"lesson_title": "Безопасность данных и коммуникаций"})()
+            ]})(),
+            type("M", (), {"module_number": 2, "lessons": []})(),
+        ],
+        current_module_number=2,
+        theme_mentions=storage.records[started.session_id]["theme_mentions"],
+    )
+
+    scope2 = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=started.revision,
+            depth=CourseBriefDepth.STANDARD,
+            knowledge_level=DifficultyLevel.MIDDLE,
+        ),
+    )
+    assert scope2.question.kind == CourseBriefQuestionKind.LESSON_SCOPE
+    extras2 = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=scope2.revision,
+            comment="подтверждаю состав",
+        ),
+    )
+    assert extras2.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS
+    after = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=extras2.revision,
+            comment="безопасность логики и данных",
+        ),
+    )
+    pending = storage.records[started.session_id].get("pending_structure_change")
+    deferred = storage.records[started.session_id].get("deferred_topics") or []
+    titles_m2 = [
+        lesson["lesson_title"]
+        for lesson in storage.records[started.session_id]["preliminary_outline"]["modules"][1][
+            "lessons"
+        ]
+    ]
+    # Не добавляем второй урок «безопасность» в текущий блок.
+    assert not any("безопасн" in title.lower() for title in titles_m2)
+    # Либо промоут в отдельный модуль, либо soft-dedup в deferred родного блока.
+    assert (pending and pending.get("kind") == "add_module") or any(
+        "безопасн" in str(item.get("title") or "").lower() for item in deferred
+    )

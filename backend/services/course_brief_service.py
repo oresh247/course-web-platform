@@ -1316,6 +1316,34 @@ class CourseBriefService:
             draft_course, next_index
         ).text
         stay = bool(session_structure and session_structure.get("awaiting_answer"))
+
+        # _build_response читает question из decision.pending_question —
+        # синхронизируем с тем, что ушло в чат, иначе UI повторяет старый текст.
+        anchor_module = draft_course.modules[current_index]
+        anchor_decision = self._decision_for_module(decisions, anchor_module.module_number) or {
+            "module_number": anchor_module.module_number,
+            "module_title": anchor_module.module_title,
+        }
+        if stay:
+            anchor_decision = {
+                **anchor_decision,
+                "pending_question": handled.get("pending_question") or assistant_message,
+                "pending_question_kind": handled.get("pending_kind"),
+                "pending_answer_controls": CourseBriefAnswerControls.TEXT.value,
+                "finalized": True,
+                "phase": PHASE_DONE,
+            }
+        else:
+            anchor_decision = {
+                **anchor_decision,
+                "pending_question": None,
+                "pending_question_kind": None,
+                "pending_answer_controls": None,
+                "finalized": True,
+                "phase": PHASE_DONE,
+            }
+        decisions = self._upsert_decision(decisions, anchor_decision)
+
         revision = current_revision + 1
         updates: Dict[str, Any] = {
             "decisions": decisions,
