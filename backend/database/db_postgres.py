@@ -152,6 +152,20 @@ class RenderDatabase:
                     except psycopg2.Error:
                         pass
                     try:
+                        cursor.execute(
+                            "ALTER TABLE course_briefs ADD COLUMN IF NOT EXISTS "
+                            "pending_structure_change JSONB"
+                        )
+                    except psycopg2.Error:
+                        pass
+                    try:
+                        cursor.execute(
+                            "ALTER TABLE course_briefs ADD COLUMN IF NOT EXISTS "
+                            "theme_mentions JSONB NOT NULL DEFAULT '[]'::jsonb"
+                        )
+                    except psycopg2.Error:
+                        pass
+                    try:
                         cursor.execute("ALTER TABLE lesson_contents ADD COLUMN IF NOT EXISTS lesson_title VARCHAR(255)")
                     except psycopg2.Error:
                         pass
@@ -425,6 +439,8 @@ class RenderDatabase:
         final_outline = brief_data.get("final_outline")
         deferred_topics = brief_data.get("deferred_topics", [])
         brief_meta = brief_data.get("brief_meta", {})
+        pending_structure_change = brief_data.get("pending_structure_change")
+        theme_mentions = brief_data.get("theme_mentions", [])
 
         if preliminary_outline is None:
             preliminary_outline = {}
@@ -434,6 +450,8 @@ class RenderDatabase:
             deferred_topics = []
         if brief_meta is None:
             brief_meta = {}
+        if theme_mentions is None:
+            theme_mentions = []
 
         current_question_index = brief_data.get("current_question_index")
         total_questions = brief_data.get("total_questions")
@@ -453,8 +471,9 @@ class RenderDatabase:
                         INSERT INTO course_briefs (
                             id, topic, status, preliminary_outline, decisions,
                             current_question_index, total_questions, final_outline,
-                            revision, deferred_topics, brief_meta
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            revision, deferred_topics, brief_meta,
+                            pending_structure_change, theme_mentions
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             brief_id,
@@ -468,6 +487,10 @@ class RenderDatabase:
                             0 if revision is None else revision,
                             as_json(deferred_topics),
                             as_json(brief_meta),
+                            as_json(pending_structure_change)
+                            if pending_structure_change is not None
+                            else None,
+                            as_json(theme_mentions),
                         ),
                     )
                     conn.commit()
@@ -513,6 +536,10 @@ class RenderDatabase:
                         "revision": row["revision"],
                         "deferred_topics": decode_json(row.get("deferred_topics"), []),
                         "brief_meta": decode_json(row.get("brief_meta"), {}),
+                        "pending_structure_change": decode_json(
+                            row.get("pending_structure_change"), None
+                        ),
+                        "theme_mentions": decode_json(row.get("theme_mentions"), []),
                         "created_at": created_at.isoformat()
                         if hasattr(created_at, "isoformat")
                         else created_at,
@@ -542,6 +569,8 @@ class RenderDatabase:
             "revision",
             "deferred_topics",
             "brief_meta",
+            "pending_structure_change",
+            "theme_mentions",
         )
         json_fields = {
             "preliminary_outline",
@@ -549,6 +578,8 @@ class RenderDatabase:
             "final_outline",
             "deferred_topics",
             "brief_meta",
+            "pending_structure_change",
+            "theme_mentions",
         }
         set_clauses: List[str] = []
         params: List[Any] = []
@@ -561,7 +592,11 @@ class RenderDatabase:
             if field in json_fields:
                 if value is None and field == "final_outline":
                     pass
+                elif value is None and field == "pending_structure_change":
+                    pass
                 elif value is None and field == "deferred_topics":
+                    value = []
+                elif value is None and field == "theme_mentions":
                     value = []
                 elif value is None:
                     value = {}

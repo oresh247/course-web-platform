@@ -545,7 +545,14 @@ def comment_declines_extras(comment: Optional[str]) -> bool:
         "оставить как есть",
     )
     if any(phrase in text for phrase in decline_phrases):
-        # «оставить все и добавить X» — extras всё же нужны.
+        # «оставить все и добавить X» — extras всё же нужны,
+        # кроме случая «добавь модуль/раздел»: это структурный запрос, не урок.
+        structure = infer_structure_request_from_comment(comment)
+        if structure.kind in {
+            CourseBriefStructureChangeKind.ADD_MODULE,
+            CourseBriefStructureChangeKind.SPLIT_MODULE,
+        }:
+            return True
         if any(
             token in text
             for token in ("добав", "ещё ", "еще ", "не хвата", "плюс ", "также ")
@@ -556,6 +563,98 @@ def comment_declines_extras(comment: Optional[str]) -> bool:
             return False
         return True
     return False
+
+
+def significant_topic_tokens(title: Optional[str]) -> set:
+    """Значимые токены названия для мягкого сравнения тем."""
+    stop = {
+        "и",
+        "или",
+        "для",
+        "про",
+        "по",
+        "с",
+        "на",
+        "в",
+        "о",
+        "об",
+        "урок",
+        "уроки",
+        "тема",
+        "темы",
+        "модуль",
+        "раздел",
+        "блок",
+        "основы",
+        "практика",
+        "данные",
+        "данных",
+        "работы",
+        "работа",
+    }
+    tokens = set(re.findall(r"[a-zа-яё0-9]+", (title or "").lower()))
+    return {token for token in tokens if len(token) > 3 and token not in stop}
+
+
+def titles_are_similar(left: Optional[str], right: Optional[str]) -> bool:
+    """Exact/substring или достаточное пересечение значимых токенов."""
+    a = (left or "").strip().lower()
+    b = (right or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    tokens_a = significant_topic_tokens(a)
+    tokens_b = significant_topic_tokens(b)
+    if not tokens_a or not tokens_b:
+        return False
+    overlap = len(tokens_a & tokens_b)
+    return overlap >= 1 and overlap / min(len(tokens_a), len(tokens_b)) >= 0.5
+
+
+def merge_session_structure_request(
+    previous: Optional[Dict[str, Any]],
+    current: CourseBriefStructureRequest,
+    *,
+    anchor_module_number: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """Объединяет сессионную очередь add/split с новым запросом из комментария."""
+    if current.kind not in {
+        CourseBriefStructureChangeKind.ADD_MODULE,
+        CourseBriefStructureChangeKind.SPLIT_MODULE,
+    }:
+        return previous if isinstance(previous, dict) else None
+    base = previous if isinstance(previous, dict) else {}
+    previous_model = _parse_stored_structure_request(base)
+    merged = merge_structure_request(previous_model, current)
+    payload = model_dump(merged)
+    payload["followup_count"] = int(base.get("followup_count") or 0)
+    payload["awaiting_answer"] = False
+    if anchor_module_number is not None:
+        payload["anchor_module_number"] = anchor_module_number
+    elif base.get("anchor_module_number") is not None:
+        payload["anchor_module_number"] = base.get("anchor_module_number")
+    return payload
+
+
+def structure_request_ready_for_insert(
+    pending: Optional[Dict[str, Any]],
+    existing_titles: Iterable[str],
+) -> Optional[str]:
+    """Возвращает ask/insert/split или None для сессионной очереди структуры."""
+    request = _parse_stored_structure_request(pending)
+    if request is None:
+        return None
+    followup = 0
+    if isinstance(pending, dict):
+        try:
+            followup = max(0, int(pending.get("followup_count") or 0))
+        except (TypeError, ValueError):
+            followup = 0
+    split_action = choose_split_module_action(request, followup)
+    if split_action:
+        return split_action
+    return choose_add_module_action(request, followup, existing_titles)
 
 
 def is_clarifying_question(comment: Optional[str]) -> bool:
@@ -760,24 +859,22 @@ def find_duplicate_topics(
     other_topics: Iterable[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     """Находит запрошенные темы, которые уже есть в других модулях."""
-    catalog = {
-        (item.get("title") or "").strip().lower(): item
+    catalog = [
+        item
         for item in other_topics
         if (item.get("title") or "").strip()
-    }
+    ]
     duplicates: List[Dict[str, Any]] = []
     seen: set[str] = set()
     for title in requested_titles:
         key = (title or "").strip().lower()
         if not key or key in seen:
             continue
-        match = catalog.get(key)
-        if match is None:
-            # Частичное совпадение по вхождению.
-            for catalog_key, item in catalog.items():
-                if key in catalog_key or catalog_key in key:
-                    match = item
-                    break
+        match = None
+        for item in catalog:
+            if titles_are_similar(title, item.get("title")):
+                match = item
+                break
         if match is not None:
             seen.add(key)
             duplicates.append(
@@ -789,6 +886,54 @@ def find_duplicate_topics(
                 }
             )
     return duplicates
+
+
+def count_similar_topic_modules(
+    title: str,
+    draft_modules: Iterable[Any],
+    *,
+    exclude_module_number: Optional[int] = None,
+) -> int:
+    """Сколько других модулей уже содержат похожую тему-урок."""
+    count = 0
+    for module in draft_modules:
+        number = getattr(module, "module_number", None)
+        if exclude_module_number is not None and number == exclude_module_number:
+            continue
+        lessons = getattr(module, "lessons", None) or []
+        for lesson in lessons:
+            lesson_title = getattr(lesson, "lesson_title", None) or (
+                lesson.get("lesson_title") if isinstance(lesson, dict) else None
+            )
+            if titles_are_similar(title, lesson_title):
+                count += 1
+                break
+    return count
+
+
+def should_promote_topic_to_module(
+    title: str,
+    draft_modules: Iterable[Any],
+    *,
+    current_module_number: int,
+    theme_mentions: Optional[Iterable[Dict[str, Any]]] = None,
+) -> bool:
+    """Тема уже всплывала в другом блоке — лучше отдельный модуль, чем ещё один урок."""
+    if count_similar_topic_modules(
+        title,
+        draft_modules,
+        exclude_module_number=current_module_number,
+    ) >= 1:
+        return True
+    mentions = 0
+    for item in theme_mentions or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("module_number") == current_module_number:
+            continue
+        if titles_are_similar(title, item.get("title")):
+            mentions += 1
+    return mentions >= 1
 
 
 def parse_excluded_lessons_from_comment(
@@ -1313,7 +1458,16 @@ def _parse_stored_structure_request(
 ) -> Optional[CourseBriefStructureRequest]:
     if not isinstance(payload, dict):
         return None
-    data = {key: value for key, value in payload.items() if key != "followup_count"}
+    data = {
+        key: value
+        for key, value in payload.items()
+        if key
+        not in {
+            "followup_count",
+            "awaiting_answer",
+            "anchor_module_number",
+        }
+    }
     try:
         return CourseBriefStructureRequest.model_validate(data)
     except ValidationError:

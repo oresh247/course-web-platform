@@ -55,6 +55,17 @@
 
 Если на `lesson_scope` пользователь уже принял черновик («все оставить», «достаточно», «ничего не добавляем» и т.п.) и нет `deferred_topics` — extras **не спрашиваем** ([`comment_declines_extras`](../backend/services/course_brief_interview.py)).
 
+Фраза «оставить все» + «добавь модуль про X» тоже считается decline extras: запрос модуля уходит в сессионную очередь `pending_structure_change`, а не трактуется как «добавь урок».
+
+### `add_module` / `split_module` вне `module_gate`
+
+На `lesson_scope` и `lesson_extras` вызывается [`infer_structure_request_from_comment`](../backend/services/course_brief_interview.py). Заявка копится в `record.pending_structure_change` и **не ломает** текущий цикл уроков. После `finalized` текущего модуля сервер либо задаёт `add_module_question` / `split_module_question`, либо сразу вставляет/делит блок, затем продолжает gate.
+
+### Повтор темы и мягкий dedup
+
+[`titles_are_similar`](../backend/services/course_brief_interview.py) сравнивает уроки не только exact/substring, но и по пересечению значимых токенов («безопасность данных…» ≈ «безопасность логики…»).  
+Если extras-тема уже встречалась в другом блоке (`theme_mentions` / чужие уроки), она **промоутится** в очередь `add_module`, а не добавляется вторым уроком. Финальный refinement также просит не размножать одну тему по модулям.
+
 ### Уточнения по уроку и `lesson_promises`
 
 Вопрос «что будет в уроке?» на фазах уроков → ответ из черновика + повтор рабочего вопроса; показанные `goal`/`content_outline` пишутся в `decision.lesson_promises` и восстанавливаются в финальном outline после refinement.

@@ -117,6 +117,8 @@ class CourseDatabase:
             for column_sql in (
                 "ALTER TABLE course_briefs ADD COLUMN deferred_topics TEXT DEFAULT '[]'",
                 "ALTER TABLE course_briefs ADD COLUMN brief_meta TEXT DEFAULT '{}'",
+                "ALTER TABLE course_briefs ADD COLUMN pending_structure_change TEXT DEFAULT NULL",
+                "ALTER TABLE course_briefs ADD COLUMN theme_mentions TEXT DEFAULT '[]'",
             ):
                 try:
                     cursor.execute(column_sql)
@@ -312,6 +314,8 @@ class CourseDatabase:
         final_outline = brief_data.get("final_outline")
         deferred_topics = brief_data.get("deferred_topics", [])
         brief_meta = brief_data.get("brief_meta", {})
+        pending_structure_change = brief_data.get("pending_structure_change")
+        theme_mentions = brief_data.get("theme_mentions", [])
 
         if preliminary_outline is None:
             preliminary_outline = {}
@@ -321,6 +325,8 @@ class CourseDatabase:
             deferred_topics = []
         if brief_meta is None:
             brief_meta = {}
+        if theme_mentions is None:
+            theme_mentions = []
 
         current_question_index = brief_data.get("current_question_index")
         total_questions = brief_data.get("total_questions")
@@ -333,8 +339,9 @@ class CourseDatabase:
                 INSERT INTO course_briefs (
                     id, topic, status, preliminary_outline, decisions,
                     current_question_index, total_questions, final_outline,
-                    revision, deferred_topics, brief_meta
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    revision, deferred_topics, brief_meta,
+                    pending_structure_change, theme_mentions
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     brief_id,
@@ -350,6 +357,10 @@ class CourseDatabase:
                     0 if revision is None else revision,
                     json.dumps(deferred_topics, ensure_ascii=False),
                     json.dumps(brief_meta, ensure_ascii=False),
+                    json.dumps(pending_structure_change, ensure_ascii=False)
+                    if pending_structure_change is not None
+                    else None,
+                    json.dumps(theme_mentions, ensure_ascii=False),
                 ),
             )
             conn.commit()
@@ -397,6 +408,8 @@ class CourseDatabase:
                 "revision": row["revision"],
                 "deferred_topics": load_json_field("deferred_topics", []),
                 "brief_meta": load_json_field("brief_meta", {}),
+                "pending_structure_change": load_json_field("pending_structure_change", None),
+                "theme_mentions": load_json_field("theme_mentions", []),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
@@ -419,6 +432,8 @@ class CourseDatabase:
             "revision",
             "deferred_topics",
             "brief_meta",
+            "pending_structure_change",
+            "theme_mentions",
         )
         json_fields = {
             "preliminary_outline",
@@ -426,6 +441,8 @@ class CourseDatabase:
             "final_outline",
             "deferred_topics",
             "brief_meta",
+            "pending_structure_change",
+            "theme_mentions",
         }
         set_clauses: List[str] = []
         params: List[Any] = []
@@ -438,7 +455,11 @@ class CourseDatabase:
             if field in json_fields:
                 if value is None and field == "final_outline":
                     pass
+                elif value is None and field == "pending_structure_change":
+                    pass
                 elif value is None and field == "deferred_topics":
+                    value = []
+                elif value is None and field == "theme_mentions":
                     value = []
                 elif value is None:
                     value = {}

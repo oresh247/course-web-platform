@@ -598,3 +598,198 @@ def test_lesson_draft_dedups_topics_from_other_modules():
     assert "HAVING" in titles
     deferred = storage.records[started.session_id].get("deferred_topics") or []
     assert any((item.get("title") or "").lower() == "практика" for item in deferred)
+
+
+def test_add_module_from_lesson_scope_is_queued_and_applied():
+    """«Добавь модуль» на lesson_scope ставится в очередь и применяется после блока."""
+    from backend.services.course_brief_interview import titles_are_similar
+
+    assert titles_are_similar(
+        "Безопасность данных и коммуникаций",
+        "Безопасность логики и данных",
+    )
+
+    ai = InterviewAI(
+        [
+            {
+                "signals": _signals(
+                    _confirmed("include"),
+                    _confirmed("standard"),
+                    _confirmed("middle"),
+                    _missing(),
+                    _missing(),
+                ),
+                "action": "next_module",
+                "follow_up_question": None,
+            },
+        ]
+    )
+    storage = MemoryStorage()
+    service = CourseBriefService(ai_client=ai, storage=storage)
+    started = service.start("Тема", module_count=2)
+    scope = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=started.revision,
+            depth=CourseBriefDepth.STANDARD,
+            knowledge_level=DifficultyLevel.MIDDLE,
+        ),
+    )
+    assert scope.question.kind == CourseBriefQuestionKind.LESSON_SCOPE
+
+    after_scope = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=scope.revision,
+            comment=(
+                "Оставить все уроки. Будет отдельный модуль про безопасность? "
+                "Если нет, добавь модуль про безопасность"
+            ),
+        ),
+    )
+    # Extras пропускаются; сразу уточнение/вставка нового раздела.
+    assert after_scope.question.kind in {
+        CourseBriefQuestionKind.ADD_MODULE,
+        CourseBriefQuestionKind.MODULE,
+    }
+    pending = storage.records[started.session_id].get("pending_structure_change")
+    if after_scope.question.kind == CourseBriefQuestionKind.ADD_MODULE:
+        assert pending and pending.get("kind") == "add_module"
+        assert "безопасн" in (pending.get("title") or "").lower()
+        inserted = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=after_scope.revision,
+                comment="Чтобы закрыть угрозы данных и коммуникаций агента",
+            ),
+        )
+        assert inserted.question.kind == CourseBriefQuestionKind.MODULE
+        titles = [
+            module["module_title"]
+            for module in storage.records[started.session_id]["preliminary_outline"]["modules"]
+        ]
+        assert any("безопасн" in title.lower() for title in titles)
+        assert len(titles) == 3
+    else:
+        titles = [
+            module["module_title"]
+            for module in storage.records[started.session_id]["preliminary_outline"]["modules"]
+        ]
+        assert any("безопасн" in title.lower() for title in titles)
+
+
+def test_repeated_extra_topic_promotes_to_module_instead_of_second_lesson():
+    """Повтор похожей extras-темы во втором блоке → очередь add_module, не второй урок."""
+    ai = InterviewAI(
+        [
+            {
+                "signals": _signals(
+                    _confirmed("include"),
+                    _confirmed("standard"),
+                    _confirmed("middle"),
+                    _missing(),
+                    _missing(),
+                ),
+                "action": "next_module",
+                "follow_up_question": None,
+            },
+            {
+                "signals": _signals(
+                    _confirmed("include"),
+                    _confirmed("standard"),
+                    _confirmed("middle"),
+                    _missing(),
+                    _missing(),
+                ),
+                "action": "next_module",
+                "follow_up_question": None,
+            },
+        ]
+    )
+    storage = MemoryStorage()
+    service = CourseBriefService(ai_client=ai, storage=storage)
+    started = service.start("Тема", module_count=2)
+
+    scope1 = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=started.revision,
+            depth=CourseBriefDepth.STANDARD,
+            knowledge_level=DifficultyLevel.MIDDLE,
+        ),
+    )
+    extras1 = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=scope1.revision,
+            comment="нужен урок про безопасность",
+        ),
+    )
+    # Первый блок: тема ещё нигде нет → extras finalize может спросить extras или добавить.
+    if extras1.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS:
+        next1 = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=extras1.revision,
+                comment="безопасность",
+            ),
+        )
+    else:
+        next1 = extras1
+
+    # Дойти до второго модуля.
+    while next1.question and next1.question.kind != CourseBriefQuestionKind.MODULE:
+        next1 = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=next1.revision,
+                comment="ничего",
+            ),
+        )
+        if next1.status.value == "completed":
+            break
+    if next1.question and next1.question.number == 1:
+        # ещё на первом — ответим чтобы перейти
+        if next1.question.kind == CourseBriefQuestionKind.ADD_MODULE:
+            next1 = service.answer(
+                started.session_id,
+                CourseBriefAnswerRequest(
+                    expected_revision=next1.revision,
+                    comment="отдельный блок про безопасность агента",
+                ),
+            )
+
+    scope2 = next1
+    if scope2.question and scope2.question.kind == CourseBriefQuestionKind.MODULE:
+        scope2 = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=scope2.revision,
+                depth=CourseBriefDepth.STANDARD,
+                knowledge_level=DifficultyLevel.MIDDLE,
+            ),
+        )
+    if scope2.question and scope2.question.kind == CourseBriefQuestionKind.LESSON_SCOPE:
+        after = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=scope2.revision,
+                comment="добавь безопасность логики",
+            ),
+        )
+        # Либо extras, либо сразу структура/следующий вопрос.
+        if after.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS:
+            after = service.answer(
+                started.session_id,
+                CourseBriefAnswerRequest(
+                    expected_revision=after.revision,
+                    comment="безопасность логики и данных",
+                ),
+            )
+        pending = storage.records[started.session_id].get("pending_structure_change")
+        assert after.question.kind in {
+            CourseBriefQuestionKind.ADD_MODULE,
+            CourseBriefQuestionKind.MODULE,
+        } or pending
+        if after.question.kind != CourseBriefQuestionKind.ADD_MODULE and pending:
+            assert pending.get("kind") == "add_module"

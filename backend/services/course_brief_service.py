@@ -43,6 +43,7 @@ from backend.services.course_brief_interview import (
     CourseBriefInterviewSignals,
     CourseBriefSignalStatus,
     CourseBriefStructureChangeKind,
+    CourseBriefStructureRequest,
     MAX_ADD_MODULE_FOLLOWUPS,
     MAX_LESSON_PHASE_FOLLOWUPS,
     MAX_MODULE_FOLLOWUPS,
@@ -76,6 +77,7 @@ from backend.services.course_brief_interview import (
     make_fallback_result,
     match_lesson_by_comment,
     merge_lesson_promises,
+    merge_session_structure_request,
     merge_signals,
     merge_structure_request,
     model_dump as dump_interview_model,
@@ -84,9 +86,11 @@ from backend.services.course_brief_interview import (
     parse_extra_topics_from_comment,
     primary_missing_signal,
     scope_question_for_lessons,
+    should_promote_topic_to_module,
     signals_to_dict,
     snapshot_lesson_promise,
     split_module_question,
+    structure_request_ready_for_insert,
     validate_interview_result,
 )
 
@@ -152,6 +156,8 @@ class CourseBriefService:
             "revision": 1,
             "brief_meta": brief_meta,
             "deferred_topics": [],
+            "pending_structure_change": None,
+            "theme_mentions": [],
         }
         self._storage.create_course_brief(record)
         self._storage.add_course_brief_message(session_id, "user", topic, 1)
@@ -200,6 +206,18 @@ class CourseBriefService:
                 record=record,
                 answer=answer,
                 current_revision=current_revision,
+            )
+
+        session_structure = self._load_session_structure_pending(record)
+        if session_structure and session_structure.get("awaiting_answer"):
+            return self._answer_session_structure_pending(
+                record=record,
+                answer=answer,
+                current_revision=current_revision,
+                draft_course=draft_course,
+                current_index=current_index,
+                decisions=decisions,
+                pending=session_structure,
             )
 
         phase = self._module_phase(current_decision)
@@ -572,8 +590,13 @@ class CourseBriefService:
         history = self._decision_history(current_decision)
         lesson_titles = [lesson.lesson_title for lesson in module.lessons]
         comment = (answer.comment or "").strip()
+        session_structure = self._queue_structure_from_comment(
+            record,
+            comment,
+            anchor_module_number=module.module_number,
+        )
 
-        if is_clarifying_question(comment):
+        if is_clarifying_question(comment) and not session_structure:
             return self._answer_lesson_clarification(
                 record=record,
                 answer=answer,
@@ -597,7 +620,7 @@ class CourseBriefService:
         if comment and any(
             token in comment.lower()
             for token in ("убр", "исключ", "замен", "только ", "кроме")
-        ) and not excluded:
+        ) and not excluded and not session_structure:
             # Нужно уточнение: назвал правки, но не сопоставили с уроками.
             lesson_followups = int((current_decision or {}).get("lesson_followup_count") or 0)
             if lesson_followups < MAX_LESSON_PHASE_FOLLOWUPS:
@@ -624,6 +647,7 @@ class CourseBriefService:
                     extra_topics=None,
                     finalize=False,
                     deferred_topics=None,
+                    pending_structure_change=session_structure,
                 )
 
         lesson_decisions = build_lesson_decisions(
@@ -670,7 +694,8 @@ class CourseBriefService:
                 extra_topics=[],
                 finalize=True,
                 deferred_topics=None,
-                finish_course=is_last,
+                finish_course=is_last and not session_structure,
+                pending_structure_change=session_structure,
             )
 
         other_topics = collect_other_module_topics(draft_course.modules, module.module_number)
@@ -702,6 +727,7 @@ class CourseBriefService:
             extra_topics=None,
             finalize=False,
             deferred_topics=None,
+            pending_structure_change=session_structure,
         )
 
     def _answer_lesson_extras_phase(
@@ -719,8 +745,13 @@ class CourseBriefService:
         module = draft_course.modules[current_index]
         history = self._decision_history(current_decision)
         comment = (answer.comment or "").strip()
+        session_structure = self._queue_structure_from_comment(
+            record,
+            comment,
+            anchor_module_number=module.module_number,
+        )
 
-        if is_clarifying_question(comment):
+        if is_clarifying_question(comment) and not session_structure:
             other_topics = collect_other_module_topics(draft_course.modules, module.module_number)
             return self._answer_lesson_clarification(
                 record=record,
@@ -737,6 +768,17 @@ class CourseBriefService:
             )
 
         requested = parse_extra_topics_from_comment(comment)
+        # Явный add_module: тему не дублируем как урок текущего блока.
+        if session_structure and (session_structure.get("title") or "").strip():
+            structure_title = str(session_structure.get("title")).strip().lower()
+            requested = [
+                title
+                for title in requested
+                if title.strip().lower() != structure_title
+                and structure_title not in title.strip().lower()
+                and title.strip().lower() not in structure_title
+            ]
+
         other_topics = collect_other_module_topics(draft_course.modules, module.module_number)
         duplicates = find_duplicate_topics(requested, other_topics)
         duplicate_keys = {
@@ -747,6 +789,37 @@ class CourseBriefService:
             for title in requested
             if title.strip().lower() not in duplicate_keys
         ]
+
+        theme_mentions = list(self._load_json(record.get("theme_mentions"), []) or [])
+        if not isinstance(theme_mentions, list):
+            theme_mentions = []
+        promoted: List[str] = []
+        kept_extras: List[str] = []
+        for title in unique_extras:
+            if should_promote_topic_to_module(
+                title,
+                draft_course.modules,
+                current_module_number=module.module_number,
+                theme_mentions=theme_mentions,
+            ):
+                promoted.append(title)
+                session_structure = merge_session_structure_request(
+                    session_structure,
+                    infer_structure_request_from_comment(
+                        f"Добавьте модуль про {title}"
+                    ),
+                    anchor_module_number=module.module_number,
+                )
+            else:
+                kept_extras.append(title)
+            theme_mentions.append(
+                {
+                    "title": title,
+                    "module_number": module.module_number,
+                    "module_title": module.module_title,
+                }
+            )
+        unique_extras = kept_extras
 
         deferred_topics = list(self._load_json(record.get("deferred_topics"), []) or [])
         if not isinstance(deferred_topics, list):
@@ -781,17 +854,23 @@ class CourseBriefService:
         else:
             lesson_decisions = current_decision.get("lesson_decisions")
 
-        notice = ""
+        notice_parts: List[str] = []
         if duplicates:
             parts = [
                 f"«{item.get('requested')}» уже в «{item.get('module_title')}»"
                 for item in duplicates
                 if item.get("requested")
             ]
-            notice = " Не дублирую: " + "; ".join(parts) + "."
+            notice_parts.append(" Не дублирую: " + "; ".join(parts) + ".")
+        if promoted:
+            titles = ", ".join(f"«{title}»" for title in promoted)
+            notice_parts.append(
+                f" Тему {titles} не добавляю уроком сюда — после блока уточним отдельный раздел."
+            )
+        notice = "".join(notice_parts)
 
         is_last = current_index >= len(draft_course.modules) - 1
-        finish_course = bool(is_last)
+        finish_course = bool(is_last) and not session_structure
 
         return self._persist_lesson_phase_step(
             record=record,
@@ -813,6 +892,8 @@ class CourseBriefService:
             deferred_topics=deferred_topics,
             assistant_suffix=notice,
             finish_course=finish_course,
+            pending_structure_change=session_structure,
+            theme_mentions=theme_mentions,
         )
 
     def _answer_lesson_clarification(
@@ -895,6 +976,8 @@ class CourseBriefService:
         assistant_suffix: str = "",
         finish_course: bool = False,
         lesson_promises: Optional[List[Dict[str, Any]]] = None,
+        pending_structure_change: Optional[Dict[str, Any]] = None,
+        theme_mentions: Optional[List[Dict[str, Any]]] = None,
     ) -> CourseBriefResponse:
         """Сохраняет шаг фаз lesson_scope / lesson_extras."""
         module = draft_course.modules[current_index]
@@ -904,7 +987,35 @@ class CourseBriefService:
 
         next_index = current_index
         assistant_message = pending_question or ""
-        if finalize and not finish_course:
+        session_structure = pending_structure_change
+        if finalize and session_structure:
+            handled = self._apply_or_ask_session_structure(
+                draft_course=draft_course,
+                decisions=decisions,
+                current_index=current_index,
+                pending=session_structure,
+                topic=record["topic"],
+            )
+            draft_course = handled["draft_course"]
+            decisions = handled["decisions"]
+            session_structure = handled["pending"]
+            next_index = handled["next_index"]
+            structure_message = handled["assistant_message"]
+            finish_course = handled["finish_course"]
+            if structure_message:
+                assistant_message = structure_message + assistant_suffix
+            elif finish_course:
+                assistant_message = (
+                    "Спасибо, уточнения собраны. Финальная структура курса готова."
+                    + assistant_suffix
+                )
+            else:
+                assistant_message = self._build_question(draft_course, next_index).text
+                if assistant_suffix:
+                    assistant_message = assistant_message + assistant_suffix
+            pending_question = handled.get("pending_question")
+            pending_kind = handled.get("pending_kind")
+        elif finalize and not finish_course:
             next_index = current_index + 1
             assistant_message = self._build_question(draft_course, next_index).text
             if assistant_suffix:
@@ -919,6 +1030,9 @@ class CourseBriefService:
             if assistant_suffix:
                 assistant_message = pending_question + assistant_suffix
 
+        if finalize and pending_question and session_structure and session_structure.get("awaiting_answer"):
+            updated_history.append({"role": "assistant", "content": pending_question})
+
         signals = signals_patch or (
             current_decision.get("signals") if current_decision else {}
         )
@@ -932,10 +1046,10 @@ class CourseBriefService:
             "confidence_percentage": confidence_from_signals(signals)[0]
             if isinstance(signals, dict)
             else (current_decision or {}).get("confidence_percentage"),
-            "phase": phase,
+            "phase": phase if not (finalize and session_structure and session_structure.get("awaiting_answer")) else PHASE_DONE,
             "finalized": finalize,
-            "pending_question": pending_question if not finalize else None,
-            "pending_question_kind": pending_kind if not finalize else None,
+            "pending_question": pending_question if (not finalize or (session_structure or {}).get("awaiting_answer")) else None,
+            "pending_question_kind": pending_kind if (not finalize or (session_structure or {}).get("awaiting_answer")) else None,
             "pending_structure_change": None,
             "lesson_followup_count": lesson_followup_count,
             "lesson_decisions": lesson_decisions
@@ -950,15 +1064,23 @@ class CourseBriefService:
         }
         decisions = self._upsert_decision(decisions, decision)
         revision = current_revision + 1
+        stay_for_structure = bool(
+            finalize and session_structure and session_structure.get("awaiting_answer")
+        )
         updates: Dict[str, Any] = {
             "decisions": decisions,
             "revision": revision,
             "total_questions": len(draft_course.modules),
             "preliminary_outline": self._dump_model(draft_course),
-            "current_question_index": next_index if finalize else current_index,
+            "current_question_index": current_index if stay_for_structure else (
+                next_index if finalize else current_index
+            ),
+            "pending_structure_change": session_structure,
         }
         if deferred_topics is not None:
             updates["deferred_topics"] = deferred_topics
+        if theme_mentions is not None:
+            updates["theme_mentions"] = theme_mentions
         if finalize and finish_course:
             final_course = self._refine_outline(draft_course, decisions, record["topic"])
             updates.update(
@@ -966,6 +1088,7 @@ class CourseBriefService:
                     "status": CourseBriefStatus.COMPLETED.value,
                     "final_outline": self._dump_model(final_course),
                     "current_question_index": len(draft_course.modules),
+                    "pending_structure_change": None,
                 }
             )
 
@@ -986,6 +1109,254 @@ class CourseBriefService:
         )
         self._storage.add_course_brief_message(
             session_id,
+            "assistant",
+            assistant_message,
+            message_sequence + 1,
+        )
+        return self._build_response({**record, **updates})
+
+    def _queue_structure_from_comment(
+        self,
+        record: Dict[str, Any],
+        comment: Optional[str],
+        *,
+        anchor_module_number: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Кладёт add/split из комментария в сессионную очередь, не ломая фазы уроков."""
+        previous = self._load_session_structure_pending(record)
+        inferred = infer_structure_request_from_comment(comment)
+        if inferred.kind not in {
+            CourseBriefStructureChangeKind.ADD_MODULE,
+            CourseBriefStructureChangeKind.SPLIT_MODULE,
+        }:
+            return previous
+        queued = merge_session_structure_request(
+            previous,
+            inferred,
+            anchor_module_number=anchor_module_number,
+        )
+        logger.info(
+            "✅ В очередь структуры с фазы уроков: kind=%s title=%s",
+            (queued or {}).get("kind"),
+            (queued or {}).get("title"),
+        )
+        return queued
+
+    @staticmethod
+    def _load_session_structure_pending(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        raw = record.get("pending_structure_change")
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+        if not isinstance(raw, dict):
+            return None
+        kind = raw.get("kind")
+        if kind in {
+            CourseBriefStructureChangeKind.ADD_MODULE.value,
+            CourseBriefStructureChangeKind.SPLIT_MODULE.value,
+        }:
+            return raw
+        return None
+
+    def _apply_or_ask_session_structure(
+        self,
+        *,
+        draft_course: Course,
+        decisions: List[Dict[str, Any]],
+        current_index: int,
+        pending: Dict[str, Any],
+        topic: str,
+    ) -> Dict[str, Any]:
+        """После финализации модуля применяет очередь структуры или задаёт уточнение."""
+        action = structure_request_ready_for_insert(
+            pending,
+            (item.module_title for item in draft_course.modules),
+        )
+        request = CourseBriefStructureRequest.model_validate(
+            {key: value for key, value in pending.items() if key != "followup_count"
+             and key not in {"awaiting_answer", "anchor_module_number"}}
+        ) if pending else CourseBriefStructureRequest()
+
+        if action == "ask":
+            followup = int(pending.get("followup_count") or 0) + 1
+            updated = dict(pending)
+            updated["followup_count"] = followup
+            updated["awaiting_answer"] = True
+            if request.kind == CourseBriefStructureChangeKind.SPLIT_MODULE:
+                question = split_module_question(
+                    request,
+                    draft_course.modules[current_index].module_title,
+                )
+                kind = CourseBriefQuestionKind.SPLIT_MODULE.value
+            else:
+                question = add_module_question(request)
+                kind = CourseBriefQuestionKind.ADD_MODULE.value
+            return {
+                "draft_course": draft_course,
+                "decisions": decisions,
+                "pending": updated,
+                "next_index": current_index,
+                "assistant_message": question,
+                "pending_question": question,
+                "pending_kind": kind,
+                "finish_course": False,
+            }
+
+        if action == "insert":
+            draft_course = self._insert_requested_module(
+                draft_course,
+                current_index,
+                request,
+                topic,
+            )
+            inserted_number = current_index + 2
+            decisions = self._shift_decisions_after_insert(decisions, inserted_number)
+            title = (request.title or "").strip() or "Новый раздел"
+            next_index = current_index + 1
+            is_last_after = next_index >= len(draft_course.modules)
+            return {
+                "draft_course": draft_course,
+                "decisions": decisions,
+                "pending": None,
+                "next_index": next_index,
+                "assistant_message": (
+                    f"Добавил в план раздел «{title}». "
+                    + self._build_question(draft_course, next_index).text
+                ) if not is_last_after else f"Добавил в план раздел «{title}».",
+                "pending_question": None,
+                "pending_kind": None,
+                "finish_course": False,
+            }
+
+        if action == "split":
+            first_title = (request.title or "").strip()
+            second_title = (request.second_title or "").strip()
+            old_number = draft_course.modules[current_index].module_number
+            draft_course = self._split_current_module(
+                draft_course,
+                current_index,
+                first_title=first_title,
+                second_title=second_title,
+                topic=topic,
+            )
+            decisions = [
+                item for item in decisions if item.get("module_number") != old_number
+            ]
+            decisions = self._shift_decisions_after_insert(decisions, current_index + 2)
+            return {
+                "draft_course": draft_course,
+                "decisions": decisions,
+                "pending": None,
+                "next_index": current_index,
+                "assistant_message": (
+                    f"Разделил блок на «{first_title}» и «{second_title}». "
+                    + self._build_question(draft_course, current_index).text
+                ),
+                "pending_question": None,
+                "pending_kind": None,
+                "finish_course": False,
+            }
+
+        # Не удалось применить — продолжаем обычный next/finish.
+        next_index = current_index + 1
+        finish = next_index >= len(draft_course.modules)
+        return {
+            "draft_course": draft_course,
+            "decisions": decisions,
+            "pending": None,
+            "next_index": next_index if not finish else current_index,
+            "assistant_message": None,
+            "pending_question": None,
+            "pending_kind": None,
+            "finish_course": finish,
+        }
+
+    def _answer_session_structure_pending(
+        self,
+        *,
+        record: Dict[str, Any],
+        answer: CourseBriefAnswerRequest,
+        current_revision: int,
+        draft_course: Course,
+        current_index: int,
+        decisions: List[Dict[str, Any]],
+        pending: Dict[str, Any],
+    ) -> CourseBriefResponse:
+        """Ответ на уточнение add/split, отложенное с фаз уроков."""
+        enriched = enrich_pending_structure_from_comment(
+            CourseBriefStructureRequest.model_validate(
+                {
+                    key: value
+                    for key, value in pending.items()
+                    if key not in {"followup_count", "awaiting_answer", "anchor_module_number"}
+                }
+            ),
+            answer.comment,
+        )
+        updated_pending = {
+            **dump_interview_model(enriched),
+            "followup_count": int(pending.get("followup_count") or 0),
+            "awaiting_answer": True,
+            "anchor_module_number": pending.get("anchor_module_number"),
+        }
+        handled = self._apply_or_ask_session_structure(
+            draft_course=draft_course,
+            decisions=decisions,
+            current_index=current_index,
+            pending=updated_pending,
+            topic=record["topic"],
+        )
+        draft_course = handled["draft_course"]
+        decisions = handled["decisions"]
+        session_structure = handled["pending"]
+        next_index = handled["next_index"]
+        assistant_message = handled["assistant_message"] or self._build_question(
+            draft_course, next_index
+        ).text
+        stay = bool(session_structure and session_structure.get("awaiting_answer"))
+        revision = current_revision + 1
+        updates: Dict[str, Any] = {
+            "decisions": decisions,
+            "revision": revision,
+            "total_questions": len(draft_course.modules),
+            "preliminary_outline": self._dump_model(draft_course),
+            "current_question_index": current_index if stay else next_index,
+            "pending_structure_change": session_structure,
+        }
+        if not stay and next_index >= len(draft_course.modules):
+            final_course = self._refine_outline(draft_course, decisions, record["topic"])
+            updates.update(
+                {
+                    "status": CourseBriefStatus.COMPLETED.value,
+                    "final_outline": self._dump_model(final_course),
+                    "current_question_index": len(draft_course.modules),
+                    "pending_structure_change": None,
+                }
+            )
+            assistant_message = (
+                handled["assistant_message"]
+                or "Спасибо, уточнения собраны. Финальная структура курса готова."
+            )
+
+        if not self._storage.update_course_brief(
+            record["id"],
+            updates,
+            expected_revision=answer.expected_revision,
+        ):
+            raise CourseBriefInvalidStateError(
+                "Сессия уже изменилась. Обновите страницу перед отправкой ответа."
+            )
+        message_sequence = self._next_message_sequence(record["id"])
+        self._storage.add_course_brief_message(
+            record["id"],
+            "user",
+            self._format_answer_message(answer),
+            message_sequence,
+        )
+        self._storage.add_course_brief_message(
+            record["id"],
             "assistant",
             assistant_message,
             message_sequence + 1,
