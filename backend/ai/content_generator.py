@@ -39,7 +39,11 @@ class ContentGenerator:
         lesson,
         module: Module,
         course_title: str,
-        target_audience: str
+        target_audience: str,
+        *,
+        module_number: int | None = None,
+        lesson_index: int = 0,
+        modules_total: int | None = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Генерирует детальный контент для одного урока (слайды)
@@ -49,6 +53,9 @@ class ContentGenerator:
             module: Модуль
             course_title: Название курса
             target_audience: Целевая аудитория
+            module_number: Номер модуля в курсе (1-based)
+            lesson_index: Индекс урока в модуле (0-based)
+            modules_total: Всего модулей в курсе
             
         Returns:
             Словарь с детальным контентом урока или None
@@ -56,11 +63,39 @@ class ContentGenerator:
         logger.info(f"Генерируем детальный контент для урока: {lesson.lesson_title}")
         
         try:
+            resolved_module_number = module_number or getattr(module, "module_number", 1) or 1
+            lessons_total = len(getattr(module, "lessons", []) or []) or 1
+            lesson_number = max(1, int(lesson_index) + 1)
+            modules_count = max(1, int(modules_total or resolved_module_number))
+            is_first_in_course = resolved_module_number <= 1 and lesson_index <= 0
+            if is_first_in_course:
+                lesson_position_hint = (
+                    "Это первый урок всего курса. Не ссылайся на предыдущие уроки курса — "
+                    "их ещё не было. Можно лишь кратко обозначить входной уровень аудитории."
+                )
+            elif lesson_index <= 0:
+                lesson_position_hint = (
+                    f"Это первый урок модуля №{resolved_module_number}. "
+                    "Не ссылайся на предыдущие уроки этого модуля. "
+                    "При необходимости опирайся только на темы более ранних модулей курса."
+                )
+            else:
+                lesson_position_hint = (
+                    f"Это урок №{lesson_number} модуля №{resolved_module_number}. "
+                    "Можно кратко опереться на предыдущие уроки этого модуля, "
+                    "не выдумывая темы, которых нет в плане."
+                )
+
             prompt = LESSON_DETAILED_PROMPT_TEMPLATE.format(
                 course_title=course_title,
                 target_audience=target_audience,
                 module_title=module.module_title,
+                module_number=resolved_module_number,
+                modules_total=modules_count,
                 lesson_title=lesson.lesson_title,
+                lesson_number=lesson_number,
+                lessons_total=lessons_total,
+                lesson_position_hint=lesson_position_hint,
                 lesson_goal=lesson.lesson_goal,
                 lesson_format=lesson.format,
                 lesson_time=lesson.estimated_time_minutes,

@@ -27,6 +27,7 @@ from backend.models.domain import (
     CourseBriefConfidence,
     CourseBriefDepth,
     CourseBriefProgress,
+    CourseBriefPublishResponse,
     CourseBriefQuestion,
     CourseBriefQuestionKind,
     CourseBriefResponse,
@@ -53,6 +54,7 @@ from backend.services.course_brief_interview import (
     PHASE_LESSON_EXTRAS,
     PHASE_LESSON_SCOPE,
     PHASE_MODULE_GATE,
+    _agent_debug_log,
     add_module_question,
     apply_answer_buttons_to_signals,
     apply_comment_hints_to_signals,
@@ -62,6 +64,7 @@ from backend.services.course_brief_interview import (
     choose_split_module_action,
     collect_other_module_topics,
     comment_declines_extras,
+    comment_cancels_structure_change,
     comment_has_exclude_intent,
     confidence_from_signals,
     course_brief_interview_json_schema,
@@ -72,6 +75,7 @@ from backend.services.course_brief_interview import (
     find_duplicate_topics,
     infer_structure_request_from_comment,
     is_clarifying_question,
+    is_invalid_structure_title,
     is_vague_topic_question,
     lesson_extras_question,
     lesson_scope_question,
@@ -87,6 +91,7 @@ from backend.services.course_brief_interview import (
     parse_extra_topics_from_comment,
     primary_missing_signal,
     scope_question_for_lessons,
+    titles_are_similar,
     should_promote_topic_to_module,
     signals_to_dict,
     snapshot_lesson_promise,
@@ -174,6 +179,76 @@ class CourseBriefService:
     def get_state(self, session_id: str) -> CourseBriefResponse:
         """Возвращает безопасное состояние сохранённой сессии без чернового outline."""
         return self._build_response(self._get_record(session_id))
+
+    def publish(self, session_id: str) -> CourseBriefPublishResponse:
+        """Сохраняет финальную структуру интервью в список курсов (таблица courses).
+
+        Повторный вызов не дублирует курс: возвращает уже опубликованный ID.
+        """
+        record = self._get_record(session_id)
+        if record.get("status") != CourseBriefStatus.COMPLETED.value:
+            raise CourseBriefInvalidStateError(
+                "Сначала завершите уточнение структуры, затем сохраните курс."
+            )
+        final_payload = self._load_json(record.get("final_outline"), None)
+        if not final_payload:
+            raise CourseBriefInvalidStateError(
+                "Финальная структура ещё не готова — завершите интервью."
+            )
+
+        brief_meta = self._load_json(record.get("brief_meta"), {}) or {}
+        if not isinstance(brief_meta, dict):
+            brief_meta = {}
+        existing_id = brief_meta.get("published_course_id")
+        course = Course(**final_payload)
+        course_dict = self._dump_model(course)
+        if isinstance(existing_id, int) or (
+            isinstance(existing_id, str) and str(existing_id).isdigit()
+        ):
+            course_id = int(existing_id)
+            logger.info(
+                "Курс из brief %s уже опубликован как %s",
+                session_id,
+                course_id,
+            )
+            return CourseBriefPublishResponse(
+                id=course_id,
+                course_id=course_id,
+                course=course,
+                status="already_published",
+                message="Курс уже сохранён в списке «Мои курсы».",
+            )
+
+        # Подтягиваем длительность из pre-brief, если refine её не заполнил.
+        meta = self._brief_meta_from_record(record)
+        if not course_dict.get("duration_weeks") and meta.get("duration_weeks"):
+            course_dict["duration_weeks"] = meta["duration_weeks"]
+        if not course_dict.get("duration_hours") and meta.get("hours_per_week"):
+            course_dict["duration_hours"] = meta["hours_per_week"]
+        if not course_dict.get("course_goals") and meta.get("course_goals"):
+            course_dict["course_goals"] = meta["course_goals"]
+        if not course_dict.get("target_audience") and meta.get("audience_level"):
+            course_dict["target_audience"] = meta["audience_level"]
+
+        course = Course(**course_dict)
+        course_id = self._storage.save_course(self._dump_model(course))
+        brief_meta["published_course_id"] = course_id
+        self._storage.update_course_brief(
+            session_id,
+            {"brief_meta": brief_meta},
+        )
+        logger.info(
+            "✅ Структура brief %s сохранена как курс %s",
+            session_id,
+            course_id,
+        )
+        return CourseBriefPublishResponse(
+            id=course_id,
+            course_id=course_id,
+            course=course,
+            status="created",
+            message="Курс добавлен в «Мои курсы».",
+        )
 
     def answer(
         self,
@@ -296,7 +371,19 @@ class CourseBriefService:
 
         inserted_module_title = None
         split_notice = None
-        if structure_action == "insert":
+        cancel_structure_notice = None
+        if structure_action == "cancel" or (
+            structure_request
+            and structure_request.kind == CourseBriefStructureChangeKind.NONE
+            and pending_structure_change
+        ):
+            structure_request = None
+            pending_structure_change = None
+            cancel_structure_notice = (
+                "Хорошо, новый раздел не добавляю — продолжаем с текущим планом. "
+            )
+            structure_action = None
+        elif structure_action == "insert":
             inserted_number = current_index + 2
             draft_course = self._insert_requested_module(
                 draft_course,
@@ -529,9 +616,13 @@ class CourseBriefService:
                 assistant_message = (
                     f"Добавил в план раздел «{inserted_module_title}». {assistant_message}"
                 )
+            if cancel_structure_notice:
+                assistant_message = cancel_structure_notice + assistant_message
         elif action == CourseBriefInterviewAction.REVISE_GOAL:
             updates["current_question_index"] = current_index
             assistant_message = pending_question or self._fallback_revise_goal_question()
+            if cancel_structure_notice:
+                assistant_message = cancel_structure_notice + assistant_message
         elif action == CourseBriefInterviewAction.FINISH:
             final_course = self._refine_outline(draft_course, decisions, record["topic"])
             updates.update(
@@ -542,6 +633,8 @@ class CourseBriefService:
                 }
             )
             assistant_message = "Спасибо, уточнения собраны. Финальная структура курса готова."
+            if cancel_structure_notice:
+                assistant_message = cancel_structure_notice + assistant_message
         else:
             next_index = current_index + 1
             updates["current_question_index"] = next_index
@@ -550,6 +643,14 @@ class CourseBriefService:
                 assistant_message = (
                     f"Добавил в план раздел «{inserted_module_title}». {assistant_message}"
                 )
+            if cancel_structure_notice:
+                assistant_message = cancel_structure_notice + assistant_message
+
+        if cancel_structure_notice:
+            updates["pending_structure_change"] = None
+            if pending_question and cancel_structure_notice not in (pending_question or ""):
+                # Уже учтено в assistant_message.
+                pass
 
         if not self._storage.update_course_brief(
             session_id,
@@ -686,6 +787,14 @@ class CourseBriefService:
         # не спрашиваем то же самое второй раз (кроме отложенных тем с других блоков).
         if comment_declines_extras(comment) and not deferred_for_module:
             is_last = current_index >= len(draft_course.modules) - 1
+            session_structure, structure_cancel_notice = self._sanitize_session_structure_queue(
+                session_structure,
+                draft_course=draft_course,
+                comment=comment,
+            )
+            suffix = exclude_miss_notice
+            if structure_cancel_notice:
+                suffix = f"{suffix} {structure_cancel_notice}".strip()
             return self._persist_lesson_phase_step(
                 record=record,
                 answer=answer,
@@ -706,7 +815,7 @@ class CourseBriefService:
                 deferred_topics=None,
                 finish_course=is_last and not session_structure,
                 pending_structure_change=session_structure,
-                assistant_suffix=exclude_miss_notice,
+                assistant_suffix=suffix,
             )
 
         other_topics = collect_other_module_topics(draft_course.modules, module.module_number)
@@ -762,7 +871,24 @@ class CourseBriefService:
             comment,
             anchor_module_number=module.module_number,
         )
-
+        # #region agent log
+        _agent_debug_log(
+            "H4",
+            "course_brief_service.py:_answer_lesson_extras_phase",
+            "extras answer vs queued add_module",
+            {
+                "comment": comment[:200],
+                "declines_extras": comment_declines_extras(comment),
+                "queued_kind": (session_structure or {}).get("kind"),
+                "queued_title": (session_structure or {}).get("title"),
+            },
+        )
+        # #endregion
+        session_structure, structure_cancel_notice = self._sanitize_session_structure_queue(
+            session_structure,
+            draft_course=draft_course,
+            comment=comment,
+        )
         if is_clarifying_question(comment) and not session_structure:
             other_topics = collect_other_module_topics(draft_course.modules, module.module_number)
             return self._answer_lesson_clarification(
@@ -880,6 +1006,8 @@ class CourseBriefService:
                 f" Тему {titles} не добавляю уроком сюда — после блока уточним отдельный раздел."
             )
         notice = "".join(notice_parts)
+        if structure_cancel_notice:
+            notice = f"{notice} {structure_cancel_notice}".strip()
 
         is_last = current_index >= len(draft_course.modules) - 1
         finish_course = bool(is_last) and not session_structure
@@ -1152,6 +1280,20 @@ class CourseBriefService:
             (queued or {}).get("kind"),
             (queued or {}).get("title"),
         )
+        # #region agent log
+        _agent_debug_log(
+            "H3",
+            "course_brief_service.py:_queue_structure_from_comment",
+            "queued structure change from lesson comment",
+            {
+                "comment": (comment or "")[:200],
+                "inferred_kind": inferred.kind.value if inferred.kind else None,
+                "inferred_title": inferred.title,
+                "queued_title": (queued or {}).get("title"),
+                "had_previous": bool(previous),
+            },
+        )
+        # #endregion
         return queued
 
     @staticmethod
@@ -1171,6 +1313,34 @@ class CourseBriefService:
         }:
             return raw
         return None
+
+    def _sanitize_session_structure_queue(
+        self,
+        pending: Optional[Dict[str, Any]],
+        *,
+        draft_course: Course,
+        comment: Optional[str],
+    ) -> tuple[Optional[Dict[str, Any]], str]:
+        """Сбрасывает очередь add_module при отказе или дубликате существующего раздела."""
+        if not pending or pending.get("kind") != CourseBriefStructureChangeKind.ADD_MODULE.value:
+            return pending, ""
+
+        title = (pending.get("title") or "").strip()
+        if comment_cancels_structure_change(comment, has_title=bool(title)):
+            return None, "Новый раздел не добавляю."
+
+        if is_invalid_structure_title(title) and comment_declines_extras(comment):
+            return None, "Новый раздел не добавляю."
+
+        existing_titles = [module.module_title for module in draft_course.modules]
+        if title and any(
+            titles_are_similar(title, existing) for existing in existing_titles
+        ):
+            return (
+                None,
+                f"Раздел «{title}» уже есть в плане — отдельный блок не добавляю.",
+            )
+        return pending, ""
 
     def _apply_or_ask_session_structure(
         self,
@@ -1214,6 +1384,28 @@ class CourseBriefService:
                 "pending_question": question,
                 "pending_kind": kind,
                 "finish_course": False,
+            }
+
+        if action == "cancel":
+            next_index = current_index + 1
+            is_last_after = next_index >= len(draft_course.modules)
+            cancel_prefix = (
+                "Хорошо, новый раздел не добавляю — продолжаем с текущим планом. "
+            )
+            return {
+                "draft_course": draft_course,
+                "decisions": decisions,
+                "pending": None,
+                "next_index": next_index,
+                "assistant_message": (
+                    cancel_prefix + self._build_question(draft_course, next_index).text
+                )
+                if not is_last_after
+                else cancel_prefix
+                + "Спасибо, уточнения собраны. Финальная структура курса готова.",
+                "pending_question": None,
+                "pending_kind": None,
+                "finish_course": is_last_after,
             }
 
         if action == "insert":
@@ -1297,22 +1489,54 @@ class CourseBriefService:
         pending: Dict[str, Any],
     ) -> CourseBriefResponse:
         """Ответ на уточнение add/split, отложенное с фаз уроков."""
-        enriched = enrich_pending_structure_from_comment(
-            CourseBriefStructureRequest.model_validate(
-                {
-                    key: value
-                    for key, value in pending.items()
-                    if key not in {"followup_count", "awaiting_answer", "anchor_module_number"}
-                }
-            ),
-            answer.comment,
+        # #region agent log
+        _agent_debug_log(
+            "H2",
+            "course_brief_service.py:_answer_session_structure_pending",
+            "session structure follow-up answer",
+            {
+                "comment": (answer.comment or "")[:200],
+                "pending_kind": pending.get("kind"),
+                "pending_title": pending.get("title"),
+                "pending_purpose": pending.get("purpose"),
+                "followup_count": pending.get("followup_count"),
+            },
         )
-        updated_pending = {
-            **dump_interview_model(enriched),
-            "followup_count": int(pending.get("followup_count") or 0),
-            "awaiting_answer": True,
-            "anchor_module_number": pending.get("anchor_module_number"),
-        }
+        # #endregion
+        has_title = bool((pending.get("title") or "").strip())
+        if comment_cancels_structure_change(answer.comment, has_title=has_title):
+            enriched = CourseBriefStructureRequest(
+                kind=CourseBriefStructureChangeKind.NONE,
+                evidence=[(answer.comment or "").strip()],
+            )
+        else:
+            enriched = enrich_pending_structure_from_comment(
+                CourseBriefStructureRequest.model_validate(
+                    {
+                        key: value
+                        for key, value in pending.items()
+                        if key
+                        not in {"followup_count", "awaiting_answer", "anchor_module_number"}
+                    }
+                ),
+                answer.comment,
+            )
+
+        if enriched.kind == CourseBriefStructureChangeKind.NONE:
+            updated_pending = {
+                "kind": CourseBriefStructureChangeKind.ADD_MODULE.value,
+                "title": None,
+                "purpose": None,
+                "followup_count": MAX_ADD_MODULE_FOLLOWUPS,
+                "awaiting_answer": True,
+            }
+        else:
+            updated_pending = {
+                **dump_interview_model(enriched),
+                "followup_count": int(pending.get("followup_count") or 0),
+                "awaiting_answer": True,
+                "anchor_module_number": pending.get("anchor_module_number"),
+            }
         handled = self._apply_or_ask_session_structure(
             draft_course=draft_course,
             decisions=decisions,
@@ -1365,7 +1589,10 @@ class CourseBriefService:
             "current_question_index": current_index if stay else next_index,
             "pending_structure_change": session_structure,
         }
-        if not stay and next_index >= len(draft_course.modules):
+        if not stay and (
+            handled.get("finish_course")
+            or next_index >= len(draft_course.modules)
+        ):
             final_course = self._refine_outline(draft_course, decisions, record["topic"])
             updates.update(
                 {
@@ -2251,6 +2478,15 @@ class CourseBriefService:
             draft_course=draft_course,
         )
 
+        brief_meta = self._load_json(record.get("brief_meta"), {}) or {}
+        published_course_id = None
+        if isinstance(brief_meta, dict):
+            raw_published = brief_meta.get("published_course_id")
+            if isinstance(raw_published, int):
+                published_course_id = raw_published
+            elif isinstance(raw_published, str) and raw_published.isdigit():
+                published_course_id = int(raw_published)
+
         return CourseBriefResponse(
             session_id=record["id"],
             topic=record["topic"],
@@ -2260,6 +2496,7 @@ class CourseBriefService:
             confidence=confidence,
             question=question,
             final_course=final_course,
+            published_course_id=published_course_id,
             messages=self._load_chat_messages(record["id"]),
         )
 

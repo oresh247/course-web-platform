@@ -48,7 +48,7 @@ function CreateCoursePage() {
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
       <Button 
         icon={<ArrowLeftOutlined />} 
-        onClick={() => navigate('/')}
+        onClick={() => navigate('/create')}
         style={{ marginBottom: 16 }}
       >
         Назад

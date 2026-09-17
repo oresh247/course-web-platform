@@ -17,6 +17,8 @@ class FakeStorage:
     def __init__(self):
         self.records: Dict[str, Dict[str, Any]] = {}
         self.messages: List[Dict[str, Any]] = []
+        self.courses: List[Dict[str, Any]] = []
+        self._next_course_id = 1
 
     def create_course_brief(self, record: Dict[str, Any]) -> str:
         self.records[record["id"]] = dict(record)
@@ -44,6 +46,12 @@ class FakeStorage:
 
     def get_course_brief_messages(self, brief_id: str):
         return [message for message in self.messages if message["brief_id"] == brief_id]
+
+    def save_course(self, course_data: Dict[str, Any]) -> int:
+        course_id = self._next_course_id
+        self._next_course_id += 1
+        self.courses.append({"id": course_id, **dict(course_data)})
+        return course_id
 
 
 class FakeAIClient:
@@ -233,3 +241,44 @@ def test_course_brief_never_returns_a_skipped_module_from_ai():
     )
 
     assert [module.module_title for module in completed.final_course.modules] == ["Основы Python"]
+
+
+def test_publish_completed_brief_saves_course_once():
+    """После завершения интервью структура сохраняется в courses без дублей."""
+    storage = FakeStorage()
+    service = CourseBriefService(ai_client=FakeAIClient(), storage=storage)
+    started = service.start("Python для аналитики")
+    outline = storage.records[started.session_id]["preliminary_outline"]
+    storage.records[started.session_id].update(
+        {
+            "status": CourseBriefStatus.COMPLETED.value,
+            "final_outline": outline,
+            "current_question_index": len(outline.get("modules") or []),
+        }
+    )
+
+    published = service.publish(started.session_id)
+    assert published.id == 1
+    assert published.status == "created"
+    assert len(storage.courses) == 1
+    assert storage.courses[0]["course_title"] == "Python для аналитики"
+
+    again = service.publish(started.session_id)
+    assert again.id == 1
+    assert again.status == "already_published"
+    assert len(storage.courses) == 1
+
+    restored = service.get_state(started.session_id)
+    assert restored.published_course_id == 1
+
+
+def test_publish_rejects_incomplete_brief():
+    """Пока интервью не завершено, publish запрещён."""
+    storage = FakeStorage()
+    service = CourseBriefService(ai_client=FakeAIClient(), storage=storage)
+    started = service.start("Python для аналитики")
+    try:
+        service.publish(started.session_id)
+    except CourseBriefInvalidStateError:
+        return
+    raise AssertionError("publish принял незавершённую сессию")

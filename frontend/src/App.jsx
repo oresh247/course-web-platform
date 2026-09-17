@@ -2,6 +2,8 @@ import { Routes, Route, useLocation } from 'react-router-dom'
 import { Layout, ConfigProvider, theme as antdTheme, App as AntdApp } from 'antd'
 import AppHeader from './components/Header'
 import HomePage from './pages/HomePage'
+import CreateCourseChoicePage from './pages/CreateCourseChoicePage'
+import CreateCoursePage from './pages/CreateCoursePage'
 import CourseGeneratorPage from './pages/CourseGeneratorPage'
 import CourseViewPage from './pages/CourseViewPage'
 import CourseContentEditorPage from './pages/CourseContentEditorPage'
@@ -90,11 +92,13 @@ const theme = {
 
 function App() {
   const location = useLocation()
-  const isFullscreenGenerator = location.pathname === '/create' || location.pathname.startsWith('/create/')
+  const isFullscreenGenerator = location.pathname === '/create/chat'
   const routes = (
     <Routes>
       <Route path="/" element={<HomePage />} />
-      <Route path="/create" element={<CourseGeneratorPage />} />
+      <Route path="/create" element={<CreateCourseChoicePage />} />
+      <Route path="/create/form" element={<CreateCoursePage />} />
+      <Route path="/create/chat" element={<CourseGeneratorPage />} />
       <Route path="/courses" element={<CoursesListPage />} />
       <Route path="/courses/:id" element={<CourseViewPage />} />
       <Route path="/courses/:id/content" element={<CourseContentEditorPage />} />

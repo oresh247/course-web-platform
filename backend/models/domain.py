@@ -309,10 +309,24 @@ class CourseBriefResponse(BaseModel):
     confidence: CourseBriefConfidence
     question: Optional[CourseBriefQuestion] = None
     final_course: Optional[Course] = None
+    published_course_id: Optional[int] = Field(
+        default=None,
+        description="ID курса в таблице courses после публикации финальной структуры",
+    )
     messages: List["CourseBriefChatMessage"] = Field(
         default_factory=list,
         description="История диалога для восстановления чата без дублей",
     )
+
+
+class CourseBriefPublishResponse(BaseModel):
+    """Результат сохранения уточнённой структуры в список курсов."""
+
+    id: int = Field(..., description="ID сохранённого курса")
+    course_id: int = Field(..., description="Дублирует id для совместимости с UI")
+    course: Course
+    status: str = Field(default="created", description="created или already_published")
+    message: Optional[str] = None
 
 # ============================================================================
 # МОДЕЛИ ДЛЯ ЛЕКЦИЙ И СЛАЙДОВ

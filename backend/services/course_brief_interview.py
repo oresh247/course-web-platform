@@ -6,7 +6,9 @@
 """
 from __future__ import annotations
 
+import json
 import re
+import time
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -131,7 +133,7 @@ PHASE_LESSON_SCOPE = "lesson_scope"
 PHASE_LESSON_EXTRAS = "lesson_extras"
 PHASE_DONE = "done"
 _ADD_MODULE_PATTERN = re.compile(
-    r"(?:добав\w*|нужен|нужно)\s+(?:ещё\s+|еще\s+)?(?:модуль|раздел)\s*"
+    r"(?:добав\w*|нужен|нужно)\s+(?:[\w-]+\s+){0,4}(?:модуль|раздел)\s*"
     r"(?:про|о|:)?\s*(.*)$",
     re.IGNORECASE,
 )
@@ -147,6 +149,39 @@ _SPLIT_HINT_PATTERN = re.compile(
     r"(?:раздел\w*|раздели\w*|разбить|разбей|два\s+блок|два\s+модул|отдельн\w+\s+блок)",
     re.IGNORECASE,
 )
+
+
+# #region agent log
+def _agent_debug_log(
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: Dict[str, Any],
+) -> None:
+    """Пишет NDJSON-лог для отладки add_module cancel/title."""
+    try:
+        with open(
+            r"c:\projects\course-web-platform\debug-a648d7.log",
+            "a",
+            encoding="utf-8",
+        ) as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "sessionId": "a648d7",
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+# #endregion
 
 
 def course_brief_interview_json_schema() -> Dict[str, Any]:
@@ -521,6 +556,11 @@ def comment_declines_extras(comment: Optional[str]) -> bool:
         "нормально",
         "согласен",
         "согласна",
+        "ничего",
+        "нет",
+        "не надо",
+        "не нужно",
+        "-",
     }:
         return True
 
@@ -561,6 +601,80 @@ def comment_declines_extras(comment: Optional[str]) -> bool:
             for token in ("не добавля", "ничего не добав", "без дополн")
         ):
             return False
+        return True
+    return False
+
+
+def comment_cancels_structure_change(
+    comment: Optional[str],
+    *,
+    has_title: bool = False,
+) -> bool:
+    """Пользователь отменяет добавление/разделение раздела, а не уточняет его.
+
+    На шаге без названия достаточно короткого «ничего»/«нет».
+    Если название уже есть, требуем явный отказ — иначе фраза про содержание
+    раздела не должна сбрасывать очередь.
+    """
+    text = (comment or "").strip().lower()
+    if not text:
+        return False
+
+    strong_cancel = (
+        "ничего не добав",
+        "не добавляй",
+        "не добавляйте",
+        "не добавляем",
+        "не добавлять",
+        "добавлять не",
+        "не надо добав",
+        "не нужно добав",
+        "не надо новый",
+        "не нужен новый",
+        "не нужен раздел",
+        "не нужен модуль",
+        "не нужна новая",
+        "без нового раздела",
+        "без нового модуля",
+        "отмени добав",
+        "отменить добав",
+        "отмени раздел",
+        "отменить раздел",
+        "отмени модуль",
+        "отменить модуль",
+        "все уже есть",
+        "всё уже есть",
+        "уже всё есть",
+        "уже все есть",
+    )
+    if any(phrase in text for phrase in strong_cancel):
+        return True
+
+    if has_title:
+        return False
+
+    return text in {
+        "ничего",
+        "нет",
+        "не надо",
+        "не нужно",
+        "отмена",
+        "отменить",
+        "отмени",
+        "-",
+    }
+
+
+def is_invalid_structure_title(title: Optional[str]) -> bool:
+    """Отсекает названия-отказы вроде «Ничего не добавляй…»."""
+    text = (title or "").strip().lower()
+    if not text:
+        return True
+    if comment_cancels_structure_change(text, has_title=False):
+        return True
+    if len(text) > 80 and any(
+        token in text for token in ("не добав", "уже есть", "не надо", "не нужно")
+    ):
         return True
     return False
 
@@ -1398,6 +1512,19 @@ def infer_structure_request_from_comment(comment: Optional[str]) -> CourseBriefS
     ):
         return CourseBriefStructureRequest()
     title = _clean_structure_title(match.group(1)) if match else None
+    # #region agent log
+    _agent_debug_log(
+        "H3",
+        "course_brief_interview.py:infer_structure_request_from_comment",
+        "parsed add_module from comment",
+        {
+            "comment": text[:200],
+            "pattern_matched": bool(match),
+            "title": title,
+            "fallback_token": match is None,
+        },
+    )
+    # #endregion
     return CourseBriefStructureRequest(
         kind=CourseBriefStructureChangeKind.ADD_MODULE,
         title=title,
@@ -1503,6 +1630,14 @@ def enrich_pending_structure_from_comment(
     text = (comment or "").strip()
     if not text:
         return pending
+    if comment_cancels_structure_change(
+        text,
+        has_title=bool((pending.title or "").strip()),
+    ):
+        return CourseBriefStructureRequest(
+            kind=CourseBriefStructureChangeKind.NONE,
+            evidence=list(pending.evidence or []) or [text],
+        )
     if pending.kind == CourseBriefStructureChangeKind.SPLIT_MODULE:
         first, second = parse_split_titles_from_comment(text)
         title = first or pending.title
@@ -1525,9 +1660,35 @@ def enrich_pending_structure_from_comment(
         title = pending.title
         purpose = pending.purpose
         if not title:
-            title = _clean_structure_title(text)
+            candidate = _clean_structure_title(text)
+            if is_invalid_structure_title(candidate):
+                return CourseBriefStructureRequest(
+                    kind=CourseBriefStructureChangeKind.NONE,
+                    evidence=list(pending.evidence or []) or [text],
+                )
+            title = candidate
         elif not purpose:
+            if comment_cancels_structure_change(text, has_title=True):
+                return CourseBriefStructureRequest(
+                    kind=CourseBriefStructureChangeKind.NONE,
+                    evidence=list(pending.evidence or []) or [text],
+                )
             purpose = text[:300]
+        # #region agent log
+        _agent_debug_log(
+            "H1",
+            "course_brief_interview.py:enrich_pending_structure_from_comment",
+            "comment used as add_module title/purpose",
+            {
+                "comment": text[:200],
+                "pending_title": pending.title,
+                "pending_purpose": pending.purpose,
+                "result_title": title,
+                "result_purpose": (purpose or "")[:120],
+                "title_from_whole_comment": not pending.title,
+            },
+        )
+        # #endregion
         return CourseBriefStructureRequest(
             kind=CourseBriefStructureChangeKind.ADD_MODULE,
             title=title,
@@ -1565,19 +1726,46 @@ def choose_add_module_action(
     followup_count: int,
     existing_titles: Iterable[str],
 ) -> Optional[str]:
-    """Возвращает ask, insert или None. Не доверяет флагу ready модели в одиночку."""
+    """Возвращает ask, insert, cancel или None. Не доверяет флагу ready модели в одиночку."""
     if request.kind != CourseBriefStructureChangeKind.ADD_MODULE:
         return None
     title = (request.title or "").strip()
     purpose = (request.purpose or "").strip()
-    normalized_existing = {item.strip().lower() for item in existing_titles if item and item.strip()}
-    if title and title.lower() in normalized_existing:
-        return None
-    if followup_count >= MAX_ADD_MODULE_FOLLOWUPS:
-        return "insert" if title else None
-    if not title or not purpose:
-        return "ask"
-    return "insert"
+    if is_invalid_structure_title(title) and not purpose:
+        # Пустой/отказной title без purpose — либо уточнить, либо отменить на follow-up.
+        if followup_count >= MAX_ADD_MODULE_FOLLOWUPS:
+            return "cancel"
+        if not title:
+            return "ask"
+        return "cancel"
+    normalized_existing = {
+        item.strip().lower() for item in existing_titles if item and item.strip()
+    }
+    if title and (
+        title.lower() in normalized_existing
+        or any(titles_are_similar(title, existing) for existing in normalized_existing)
+    ):
+        action = "cancel"
+    elif followup_count >= MAX_ADD_MODULE_FOLLOWUPS:
+        action = "insert" if title and not is_invalid_structure_title(title) else "cancel"
+    elif not title or is_invalid_structure_title(title) or not purpose:
+        action = "ask"
+    else:
+        action = "insert"
+    # #region agent log
+    _agent_debug_log(
+        "H5",
+        "course_brief_interview.py:choose_add_module_action",
+        "add_module action chosen",
+        {
+            "title": title,
+            "purpose": purpose[:120] if purpose else None,
+            "followup_count": followup_count,
+            "action": action,
+        },
+    )
+    # #endregion
+    return action
 
 
 def choose_split_module_action(

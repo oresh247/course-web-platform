@@ -332,6 +332,8 @@ function CourseGeneratorPage() {
   const [confidence, setConfidence] = useState(EMPTY_CONFIDENCE)
   const [phase, setPhase] = useState('idle')
   const [finalCourse, setFinalCourse] = useState(null)
+  const [publishedCourseId, setPublishedCourseId] = useState(null)
+  const [isPublishing, setIsPublishing] = useState(false)
   const [selectedDepth, setSelectedDepth] = useState(null)
   const [selectedKnowledgeLevel, setSelectedKnowledgeLevel] = useState(null)
   const [comment, setComment] = useState('')
@@ -398,6 +400,11 @@ function CourseGeneratorPage() {
     setQuestion(isResponseComplete ? null : nextQuestion)
     setFinalCourse(isResponseComplete ? response.final_course || null : null)
     setPhase(isResponseComplete ? 'completed' : 'questioning')
+    if (response.published_course_id != null) {
+      setPublishedCourseId(response.published_course_id)
+    } else if (!isResponseComplete) {
+      setPublishedCourseId(null)
+    }
 
     const agentText = isResponseComplete
       ? response.final_course
@@ -626,6 +633,10 @@ function CourseGeneratorPage() {
   const startNewBrief = () => {
     clearActiveCourseBriefSessionId()
     setTopic('')
+    setPreBriefStep('topic')
+    setCourseGoals('')
+    setAudienceLevel(null)
+    setModuleCount(null)
     setSessionId(null)
     setQuestion(null)
     setRevision(1)
@@ -633,6 +644,8 @@ function CourseGeneratorPage() {
     setConfidence(EMPTY_CONFIDENCE)
     setPhase('idle')
     setFinalCourse(null)
+    setPublishedCourseId(null)
+    setIsPublishing(false)
     setSelectedDepth(null)
     setSelectedKnowledgeLevel(null)
     setComment('')
@@ -642,13 +655,66 @@ function CourseGeneratorPage() {
     ])
   }
 
+  const publishFinalCourse = async ({ navigateToCourse = false } = {}) => {
+    if (!sessionId || isPublishing) return null
+    if (publishedCourseId) {
+      if (navigateToCourse) navigate(`/courses/${publishedCourseId}`)
+      return publishedCourseId
+    }
+
+    setIsPublishing(true)
+    setError('')
+    try {
+      const result = await coursesApi.publishCourseBrief(sessionId)
+      const courseId = result.id || result.course_id
+      setPublishedCourseId(courseId)
+      setMessages((current) => [
+        ...current,
+        createMessage(
+          'assistant',
+          result.status === 'already_published'
+            ? 'Курс уже есть в «Мои курсы».'
+            : 'Структура сохранена — курс появился в «Мои курсы».',
+          true,
+        ),
+      ])
+      if (navigateToCourse && courseId) {
+        navigate(`/courses/${courseId}`)
+      }
+      return courseId
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError) || 'Не удалось сохранить курс в список.')
+      return null
+    } finally {
+      setIsPublishing(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isCompleted || !sessionId || publishedCourseId || isPublishing) return undefined
+    let cancelled = false
+
+    const autoPublish = async () => {
+      if (cancelled) return
+      await publishFinalCourse({ navigateToCourse: false })
+    }
+
+    autoPublish()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- публикуем один раз при завершении
+  }, [isCompleted, sessionId, publishedCourseId])
+
   const pageTitle = isCompleted
     ? finalCourse?.course_title || 'Структура курса готова'
     : topic
       ? `Курс: ${topic}`
       : 'Чему вы хотите научиться?'
   const pageSummary = isCompleted
-    ? 'Финальная программа сформирована на основе ваших ответов.'
+    ? publishedCourseId
+      ? 'Курс сохранён и доступен в «Мои курсы».'
+      : 'Финальная программа сформирована — сохраняем в «Мои курсы»…'
     : 'Ответьте на короткие вопросы. Мы уточним глубину каждого раздела и уровень знаний слушателей.'
 
   return (
@@ -668,6 +734,9 @@ function CourseGeneratorPage() {
         </Link>
 
         <nav className="course-generator-page__topbar-actions" aria-label="Действия страницы">
+          <button className="course-generator-page__ghost-button" type="button" onClick={() => navigate('/create')}>
+            Способы создания
+          </button>
           <button className="course-generator-page__ghost-button" type="button" onClick={() => navigate('/courses')}>
             Мои курсы
           </button>
@@ -941,10 +1010,37 @@ function CourseGeneratorPage() {
               </form>
             ) : (
               <div className="course-generator-page__completed-actions">
-                <p>Структура доступна в панели справа.</p>
-                <button className="course-generator-page__primary-button" type="button" onClick={startNewBrief}>
-                  Создать ещё один курс
-                </button>
+                <p>
+                  {publishedCourseId
+                    ? 'Курс добавлен в список — его можно открыть или продолжить создание другого.'
+                    : isPublishing
+                      ? 'Сохраняем структуру в «Мои курсы»…'
+                      : 'Структура готова. Сохраните её в «Мои курсы», чтобы работать с карточками курса.'}
+                </p>
+                <div className="course-generator-page__answer-actions">
+                  <button
+                    className="course-generator-page__primary-button"
+                    type="button"
+                    disabled={isPublishing || (!publishedCourseId && !sessionId)}
+                    onClick={() => publishFinalCourse({ navigateToCourse: true })}
+                  >
+                    {publishedCourseId
+                      ? 'Открыть курс'
+                      : isPublishing
+                        ? 'Сохраняем…'
+                        : 'Сохранить в мои курсы'}
+                  </button>
+                  <button
+                    className="course-generator-page__secondary-button"
+                    type="button"
+                    onClick={() => navigate('/courses')}
+                  >
+                    К списку курсов
+                  </button>
+                  <button className="course-generator-page__ghost-button" type="button" onClick={startNewBrief}>
+                    Создать ещё один курс
+                  </button>
+                </div>
               </div>
             )}
           </div>

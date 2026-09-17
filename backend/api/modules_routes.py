@@ -253,6 +253,9 @@ async def generate_module_content(course_id: int, module_number: int):
                 module=module,
                 course_title=course.course_title,
                 target_audience=course.target_audience,
+                module_number=module_number,
+                lesson_index=lesson_index,
+                modules_total=len(course.modules),
             )
 
             if not lesson_content:

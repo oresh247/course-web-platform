@@ -6,6 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from backend.models.domain import (
     CourseBriefAnswerRequest,
+    CourseBriefPublishResponse,
     CourseBriefResponse,
     CourseBriefStartRequest,
 )
@@ -68,3 +69,24 @@ async def answer_course_brief(session_id: str, request: CourseBriefAnswerRequest
     except Exception as error:
         logger.exception("Не удалось обработать ответ в интервью")
         raise HTTPException(status_code=500, detail="Не удалось обработать ответ") from error
+
+
+@router.post(
+    "/{session_id}/publish",
+    response_model=CourseBriefPublishResponse,
+    status_code=201,
+)
+async def publish_course_brief(session_id: str):
+    """Публикует финальную структуру интервью в список курсов."""
+    try:
+        return await run_in_threadpool(course_brief_service.publish, session_id)
+    except CourseBriefNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except CourseBriefInvalidStateError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    except Exception as error:
+        logger.exception("Не удалось опубликовать курс из интервью")
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось сохранить курс в список «Мои курсы»",
+        ) from error

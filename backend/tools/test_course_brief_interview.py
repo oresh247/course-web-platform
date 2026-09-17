@@ -417,6 +417,148 @@ def test_comment_declines_extras_does_not_match_urok_substring():
     assert excluded2 == [titles[0]]
 
 
+def test_cancel_add_module_does_not_create_nothing_section():
+    """Отказ от нового раздела не превращается в модуль «Ничего…»."""
+    from backend.models.domain import CourseBriefQuestionKind
+    from backend.services.course_brief_interview import (
+        comment_cancels_structure_change,
+        enrich_pending_structure_from_comment,
+        infer_structure_request_from_comment,
+        CourseBriefStructureChangeKind,
+        CourseBriefStructureRequest,
+    )
+
+    parsed = infer_structure_request_from_comment(
+        "Добавить отдельный модуль про JOIN"
+    )
+    assert parsed.kind == CourseBriefStructureChangeKind.ADD_MODULE
+    assert "join" in (parsed.title or "").lower()
+
+    assert comment_cancels_structure_change(
+        "Ничего не добавляй, все уже есть",
+        has_title=False,
+    )
+    cancelled = enrich_pending_structure_from_comment(
+        CourseBriefStructureRequest(kind=CourseBriefStructureChangeKind.ADD_MODULE),
+        "Ничего не добавляй, все уже есть",
+    )
+    assert cancelled.kind == CourseBriefStructureChangeKind.NONE
+
+    ai = InterviewAI(
+        [
+            {
+                "signals": _signals(
+                    _confirmed("include"),
+                    _confirmed("standard"),
+                    _confirmed("middle"),
+                    _missing(),
+                    _missing(),
+                ),
+                "action": "next_module",
+                "follow_up_question": None,
+            },
+        ]
+    )
+    storage = MemoryStorage()
+    service = CourseBriefService(ai_client=ai, storage=storage)
+    started = service.start("SQL", module_count=2)
+    outline = storage.records[started.session_id]["preliminary_outline"]
+    outline["modules"] = [
+        {
+            "module_number": 1,
+            "module_title": "Основы SQL и запросы SELECT",
+            "module_goal": "SELECT",
+            "lessons": [
+                {
+                    "lesson_title": "Введение",
+                    "lesson_goal": "Старт",
+                    "content_outline": ["A"],
+                    "assessment": "Практика",
+                    "format": "theory",
+                    "estimated_time_minutes": 30,
+                }
+            ],
+        },
+        {
+            "module_number": 2,
+            "module_title": "Joins и итоговый проект",
+            "module_goal": "JOIN",
+            "lessons": [
+                {
+                    "lesson_title": "INNER JOIN",
+                    "lesson_goal": "Join",
+                    "content_outline": ["B"],
+                    "assessment": "Практика",
+                    "format": "practice",
+                    "estimated_time_minutes": 30,
+                }
+            ],
+        },
+    ]
+    storage.records[started.session_id]["preliminary_outline"] = outline
+    storage.records[started.session_id]["total_questions"] = 2
+
+    scope = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=started.revision,
+            depth=CourseBriefDepth.DEEP,
+            knowledge_level=DifficultyLevel.MIDDLE,
+        ),
+    )
+    assert scope.question.kind == CourseBriefQuestionKind.LESSON_SCOPE
+
+    after_join_request = service.answer(
+        started.session_id,
+        CourseBriefAnswerRequest(
+            expected_revision=scope.revision,
+            comment="Добавить отдельный модуль про JOIN",
+        ),
+    )
+    # После scope либо extras, либо сразу add_module/next.
+    if after_join_request.question.kind == CourseBriefQuestionKind.LESSON_EXTRAS:
+        after_nothing = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=after_join_request.revision,
+                comment="ничего",
+            ),
+        )
+    else:
+        after_nothing = after_join_request
+
+    # Если спросили название раздела — отказ не должен стать title.
+    if after_nothing.question and after_nothing.question.kind == CourseBriefQuestionKind.ADD_MODULE:
+        cancelled_answer = service.answer(
+            started.session_id,
+            CourseBriefAnswerRequest(
+                expected_revision=after_nothing.revision,
+                comment="Ничего не добавляй, все уже есть",
+            ),
+        )
+        titles = [
+            module["module_title"]
+            for module in storage.records[started.session_id]["preliminary_outline"]["modules"]
+        ]
+        assert not any("ничего" in title.lower() for title in titles)
+        assert cancelled_answer.question.kind != CourseBriefQuestionKind.ADD_MODULE
+        assert storage.records[started.session_id].get("pending_structure_change") in (
+            None,
+            {"kind": "none"},
+        )
+    else:
+        titles = [
+            module["module_title"]
+            for module in storage.records[started.session_id]["preliminary_outline"]["modules"]
+        ]
+        assert not any("ничего" in title.lower() for title in titles)
+        pending = storage.records[started.session_id].get("pending_structure_change")
+        # JOIN уже есть — очередь должна быть сброшена.
+        assert pending in (None, {"kind": "none"}) or (
+            pending and "join" not in (pending.get("title") or "").lower()
+        )
+
+
 def test_exclude_keyword_from_lesson_scope_marks_partial():
     """«убери PyQt» на lesson_scope исключает урок по ключевому слову в названии."""
     ai = InterviewAI(

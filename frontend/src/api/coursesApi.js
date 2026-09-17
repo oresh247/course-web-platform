@@ -44,6 +44,11 @@ export const coursesApi = {
     return response.data
   },
 
+  publishCourseBrief: async (sessionId) => {
+    const response = await api.post(`/api/course-briefs/${sessionId}/publish`)
+    return response.data
+  },
+
   // Создать курс
   createCourse: async (data) => {
     const response = await api.post('/api/courses/', data)
